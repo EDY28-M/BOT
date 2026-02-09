@@ -1,0 +1,11 @@
+{
+  "delay_min": 8,
+  "delay_max": 15,
+  "timeout_captcha": 180,
+  "timeout_pagina": 30,
+  "headless": false,
+  "guardar_screenshots": true,
+  "modo_captcha": "manual",
+  "reintentos": 2,
+  "guardar_cada": 5
+}

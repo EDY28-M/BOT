@@ -1,0 +1,15 @@
+================================================================================
+RESULTADOS CONSULTA SUNEDU
+Fecha: 2026-02-05 14:37:31
+================================================================================
+
+DNI: 02747017
+Nombres: 
+Grado/Título: 
+Institución: 
+Fecha Diploma: 
+Fecha Matrícula: Sin información
+Fecha Egreso: Sin información
+Estado: NO ENCONTRADO
+Observaciones: No se encontraron resultados para el DNI
+--------------------------------------------------------------------------------
