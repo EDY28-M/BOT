@@ -1,0 +1,27 @@
+# ──────────────────────────────────────────────────
+# Dependencias - Validador de Grados Académicos
+# ──────────────────────────────────────────────────
+
+# Framework web
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Dashboard
+streamlit>=1.28.0
+
+# Base de datos
+sqlalchemy>=2.0.0
+
+# Scraping
+botasaurus>=4.0.0
+ddddocr>=1.4.0
+
+# Data
+pandas>=2.0.0
+openpyxl>=3.1.0
+
+# HTTP client (para Streamlit → API)
+requests>=2.31.0
+
+# Python-multipart (para upload en FastAPI)
+python-multipart>=0.0.6
