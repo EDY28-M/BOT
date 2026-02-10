@@ -64,6 +64,7 @@ class Registro(Base):
     lote_id          = Column(Integer, ForeignKey("lotes.id"), nullable=False)
     dni              = Column(String(15), nullable=False, index=True)
     estado           = Column(String(30), nullable=False, default="PENDIENTE", index=True)
+    retry_count      = Column(Integer, default=0)    # Cuántas veces se ha reintentado
     payload_sunedu   = Column(Text, default=None)   # JSON serializado
     payload_minedu   = Column(Text, default=None)   # JSON serializado
     error_msg        = Column(Text, default=None)
@@ -164,6 +165,7 @@ def tomar_siguiente(estado_origen: str, estado_procesando: str) -> Optional[Regi
             "id": reg.id,
             "dni": reg.dni,
             "lote_id": reg.lote_id,
+            "retry_count": reg.retry_count or 0,
         }
         return type("RegistroDTO", (), data)()
     except Exception:
@@ -252,6 +254,7 @@ def obtener_registros(
                 "lote_id": r.lote_id,
                 "dni": r.dni,
                 "estado": r.estado,
+                "retry_count": r.retry_count or 0,
                 "error_msg": r.error_msg,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "updated_at": r.updated_at.isoformat() if r.updated_at else None,
@@ -289,6 +292,128 @@ def obtener_lotes() -> List[Dict[str, Any]]:
             }
             for l in lotes
         ]
+    finally:
+        session.close()
+
+
+def reintentar_no_encontrados() -> Dict[str, Any]:
+    """
+    Re-encola TODOS los registros NOT_FOUND y ERROR_* de vuelta a PENDIENTE
+    para que pasen otra vez por SUNEDU → MINEDU (una sola pasada).
+    Sin límite de reintentos — el usuario controla cuántas veces pulsa el botón.
+    """
+    from config import Estado
+    session = SessionFactory()
+    try:
+        estados_retry = [Estado.NOT_FOUND, Estado.ERROR_SUNEDU, Estado.ERROR_MINEDU]
+        registros = (
+            session.query(Registro)
+            .filter(Registro.estado.in_(estados_retry))
+            .all()
+        )
+        reencolados = 0
+        for reg in registros:
+            reg.estado = Estado.PENDIENTE
+            reg.retry_count = (reg.retry_count or 0) + 1
+            reg.error_msg = None
+            reg.payload_sunedu = None
+            reg.payload_minedu = None
+            reg.updated_at = datetime.utcnow()
+            reencolados += 1
+        session.commit()
+        return {"reencolados": reencolados}
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def hay_trabajo_pendiente() -> bool:
+    """Retorna True si hay registros en estados no-terminales."""
+    from config import Estado
+    session = SessionFactory()
+    try:
+        estados_activos = [
+            Estado.PENDIENTE, Estado.PROCESANDO_SUNEDU,
+            Estado.CHECK_MINEDU, Estado.PROCESANDO_MINEDU,
+        ]
+        count = (
+            session.query(Registro)
+            .filter(Registro.estado.in_(estados_activos))
+            .count()
+        )
+        return count > 0
+    finally:
+        session.close()
+
+
+def contar_retryables() -> int:
+    """Retorna la cantidad de registros NOT_FOUND / ERROR que se pueden reintentar."""
+    from config import Estado
+    session = SessionFactory()
+    try:
+        estados_retry = [Estado.NOT_FOUND, Estado.ERROR_SUNEDU, Estado.ERROR_MINEDU]
+        return (
+            session.query(Registro)
+            .filter(Registro.estado.in_(estados_retry))
+            .count()
+        )
+    finally:
+        session.close()
+
+
+def recuperar_procesando() -> Dict[str, int]:
+    """
+    Recupera registros atrapados en estados PROCESANDO_*
+    (por ejemplo, si un worker murió o fue detenido bruscamente).
+    PROCESANDO_SUNEDU → PENDIENTE
+    PROCESANDO_MINEDU → CHECK_MINEDU
+    """
+    from config import Estado
+    session = SessionFactory()
+    try:
+        sunedu = (
+            session.query(Registro)
+            .filter(Registro.estado == Estado.PROCESANDO_SUNEDU)
+            .all()
+        )
+        for r in sunedu:
+            r.estado = Estado.PENDIENTE
+            r.updated_at = datetime.utcnow()
+
+        minedu = (
+            session.query(Registro)
+            .filter(Registro.estado == Estado.PROCESANDO_MINEDU)
+            .all()
+        )
+        for r in minedu:
+            r.estado = Estado.CHECK_MINEDU
+            r.updated_at = datetime.utcnow()
+
+        session.commit()
+        return {"sunedu_recuperados": len(sunedu), "minedu_recuperados": len(minedu)}
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def limpiar_todo() -> Dict[str, int]:
+    """Elimina todos los registros y lotes de la base de datos."""
+    session = SessionFactory()
+    try:
+        registros_eliminados = session.query(Registro).delete()
+        lotes_eliminados = session.query(Lote).delete()
+        session.commit()
+        return {
+            "registros_eliminados": registros_eliminados,
+            "lotes_eliminados": lotes_eliminados,
+        }
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 

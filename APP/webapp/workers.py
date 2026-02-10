@@ -25,12 +25,41 @@ except ImportError:
 
 from config import (
     Estado, SUNEDU_URL, MINEDU_URL,
-    SUNEDU_SLEEP_MIN, SUNEDU_SLEEP_MAX,
+    SUNEDU_SLEEP_MIN, SUNEDU_SLEEP_MAX, SUNEDU_SLEEP_NOT_FOUND,
     MINEDU_SLEEP_MIN, MINEDU_SLEEP_MAX,
     SUNEDU_MAX_RETRIES, MINEDU_MAX_RETRIES,
-    WORKER_POLL_INTERVAL,
+    WORKER_POLL_INTERVAL, RETRY_EXTRA_SLEEP,
     HEADLESS, BLOCK_IMAGES_SUNEDU, BLOCK_IMAGES_MINEDU,
 )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  MOTIVOS DE ERROR / NO-ENCONTRADO
+# ═══════════════════════════════════════════════════════════════════════
+
+class Motivo:
+    """Constantes de motivos para el campo error_msg."""
+    # SUNEDU
+    SUNEDU_NO_ENCONTRADO = "No se encontró en SUNEDU - derivado a MINEDU"
+    SUNEDU_CAPTCHA_FALLO = "Falló la verificación de seguridad/captcha en SUNEDU"
+    SUNEDU_VERIFICACION_NO_SUPERADA = "No se pasó la verificación de seguridad en SUNEDU"
+    SUNEDU_TIMEOUT = "Tiempo de espera agotado en SUNEDU - la página tardó demasiado"
+    SUNEDU_CARGA_MUY_RAPIDA = "Se saltó demasiado rápido la carga en SUNEDU"
+    SUNEDU_BOTON_NO_ENCONTRADO = "No se encontró el botón de búsqueda en SUNEDU"
+    SUNEDU_PAGINA_NO_CARGO = "La página de SUNEDU no cargó correctamente"
+    SUNEDU_ERROR_EXTRACCION = "Error al extraer datos de la tabla SUNEDU"
+    SUNEDU_MAX_REINTENTOS = "Se agotaron todos los reintentos en SUNEDU"
+    
+    # MINEDU
+    MINEDU_NO_ENCONTRADO = "No se encontró título en MINEDU"
+    MINEDU_CAPTCHA_FALLO = "Falló la verificación del captcha en MINEDU"
+    MINEDU_CAPTCHA_INCORRECTO = "Captcha incorrecto en MINEDU - reintentando"
+    MINEDU_OCR_FALLO = "Falló el OCR del captcha en MINEDU"
+    MINEDU_BOTON_NO_ENCONTRADO = "No se encontró el botón de consulta en MINEDU"
+    MINEDU_PAGINA_NO_CARGO = "La página de MINEDU no cargó correctamente"
+    MINEDU_TIMEOUT = "Tiempo de espera agotado en MINEDU"
+    MINEDU_MAX_REINTENTOS = "Se agotaron todos los reintentos en MINEDU"
+    MINEDU_REFRESCO_CAPTCHA_FALLO = "No se pudo refrescar el captcha en MINEDU"
 from database import tomar_siguiente, actualizar_resultado
 
 log = logging.getLogger("WORKERS")
@@ -222,46 +251,102 @@ class SuneduLogic:
             log.error(f"[SUNEDU][EXTRACT] Error: {e}")
             return []
 
-    # ── MÉTODO PRINCIPAL: procesar un solo DNI ──
-    def procesar_un_dni(self, driver: Driver, dni: str) -> Optional[List[Dict[str, Any]]]:
+    # ── Helpers de verificación y recarga ──
+
+    def _pasar_verificacion(self, driver: Driver, espera_extra: bool = False) -> bool:
         """
-        Retorna lista de dicts con datos si encuentra, None si no encuentra.
+        Detecta y supera la verificación de Turnstile/checkbox.
+        espera_extra: True si la página fue recién cargada/recargada.
+        Retorna True si la verificación fue superada o no era necesaria.
+        """
+        estado = self.detectar_estado(driver)
+
+        # Limpiar resultados viejos de un DNI anterior
+        if estado in ("tabla", "no_encontrado"):
+            self.cerrar_swal(driver)
+            time.sleep(0.5)
+            estado = self.detectar_estado(driver)
+
+        # Si la página es fresca, dar tiempo extra para que cargue Turnstile
+        if espera_extra and estado == "cargando":
+            time.sleep(2)
+            estado = self.detectar_estado(driver)
+
+        # No hay verificación → OK
+        if estado != "verificacion":
+            return True
+
+        # Intentar pasar la verificación (hasta 3 intentos)
+        for attempt in range(3):
+            self.cerrar_swal(driver)
+            time.sleep(0.5)
+            self.click_checkbox(driver)
+            time.sleep(3)
+            if self.detectar_estado(driver) != "verificacion":
+                time.sleep(1)
+                return True
+            log.warning(f"[SUNEDU] Verificación intento {attempt + 1}/3 fallido")
+
+        return False
+
+    def _recargar_pagina(self, driver: Driver):
+        """Recarga la página y espera 5 segundos para que cargue completamente."""
+        try:
+            driver.run_js("location.reload(true);")
+        except Exception:
+            try:
+                driver.get(self.URL)
+                self._primera_carga = False
+            except Exception:
+                pass
+        time.sleep(5)
+
+    # ── MÉTODO PRINCIPAL: procesar un solo DNI ──
+    def procesar_un_dni(self, driver: Driver, dni: str) -> Dict[str, Any]:
+        """
+        Retorna dict con:
+          - 'encontrado': bool
+          - 'datos': list[dict] si encontrado
+          - 'motivo': str razón legible del resultado
         Lanza Exception si falla tras todos los reintentos.
         """
+        ultimo_motivo = Motivo.SUNEDU_MAX_REINTENTOS
+        
         for intento in range(1, SUNEDU_MAX_RETRIES + 1):
             log.info(f"[SUNEDU] DNI {dni} | Intento {intento}/{SUNEDU_MAX_RETRIES}")
             try:
-                # Cargar página
+                # ── Preparar página ──
+                pagina_fresca = False
                 if self._primera_carga:
                     log.info("[SUNEDU] Primera carga...")
                     driver.get(self.URL)
                     time.sleep(6)
                     self._primera_carga = False
+                    pagina_fresca = True
                 elif intento > 1:
                     log.info("[SUNEDU] Refrescando página...")
-                    driver.run_js("location.reload(true);")
-                    time.sleep(6)
-
-                # Verificación pre-búsqueda
-                estado = self.detectar_estado(driver)
-                if estado == "verificacion":
-                    log.info("[SUNEDU] Verificación detectada...")
+                    self._recargar_pagina(driver)
+                    pagina_fresca = True
+                else:
+                    # Nuevo DNI, misma sesión → limpiar estado anterior
                     self.cerrar_swal(driver)
-                    time.sleep(0.5)
-                    self.click_checkbox(driver)
-                    time.sleep(2)
-                    estado = self.detectar_estado(driver)
-                    if estado == "verificacion":
-                        log.warning("[SUNEDU] Verificación no superada → reintentar")
-                        continue
-                    time.sleep(1)
+                    time.sleep(0.3)
 
-                # Buscar DNI
-                if not self.buscar_dni(driver, dni):
-                    time.sleep(2)
+                # ── Verificación de seguridad (Turnstile) ──
+                if not self._pasar_verificacion(driver, espera_extra=pagina_fresca):
+                    log.warning("[SUNEDU] Verificación no superada → refrescando")
+                    ultimo_motivo = Motivo.SUNEDU_VERIFICACION_NO_SUPERADA
+                    self._recargar_pagina(driver)
                     continue
 
-                time.sleep(1)
+                # ── Buscar DNI ──
+                if not self.buscar_dni(driver, dni):
+                    log.warning("[SUNEDU] Botón no encontrado → refrescando")
+                    ultimo_motivo = Motivo.SUNEDU_BOTON_NO_ENCONTRADO
+                    self._recargar_pagina(driver)
+                    continue
+
+                time.sleep(0.8)
 
                 # Esperar resultado
                 resultado = self.esperar_resultado(driver, timeout=15)
@@ -269,43 +354,50 @@ class SuneduLogic:
                 if resultado == "tabla":
                     datos = self.extraer_datos(driver, dni)
                     if datos:
-                        time.sleep(4)
-                        return datos
-                    return None
+                        time.sleep(SUNEDU_SLEEP_NOT_FOUND)  # espera anti-ban
+                        return {"encontrado": True, "datos": datos, "motivo": "Encontrado en SUNEDU"}
+                    return {"encontrado": False, "datos": None, "motivo": Motivo.SUNEDU_ERROR_EXTRACCION}
 
                 elif resultado == "no_encontrado":
                     self.cerrar_swal(driver)
-                    time.sleep(4)
-                    return None  # No encontrado → pasar a Minedu
+                    # Espera reducida: pasa rápido a MINEDU
+                    time.sleep(SUNEDU_SLEEP_NOT_FOUND)
+                    return {"encontrado": False, "datos": None, "motivo": Motivo.SUNEDU_NO_ENCONTRADO}
 
                 elif resultado == "verificacion":
                     log.warning("[SUNEDU] Verificación post-búsqueda")
                     self.cerrar_swal(driver)
                     time.sleep(0.5)
                     self.click_checkbox(driver)
-                    time.sleep(2)
+                    time.sleep(3)
                     post = self.detectar_estado(driver)
                     if post == "tabla":
                         datos = self.extraer_datos(driver, dni)
                         if datos:
-                            return datos
-                        return None
+                            return {"encontrado": True, "datos": datos, "motivo": "Encontrado en SUNEDU (tras verificación)"}
+                        return {"encontrado": False, "datos": None, "motivo": Motivo.SUNEDU_ERROR_EXTRACCION}
                     elif post == "no_encontrado":
                         self.cerrar_swal(driver)
-                        time.sleep(4)
-                        return None
+                        time.sleep(SUNEDU_SLEEP_NOT_FOUND)
+                        return {"encontrado": False, "datos": None, "motivo": Motivo.SUNEDU_NO_ENCONTRADO}
                     else:
+                        log.warning("[SUNEDU] Captcha post-búsqueda falló → refrescando")
+                        ultimo_motivo = Motivo.SUNEDU_CAPTCHA_FALLO
+                        self._recargar_pagina(driver)
                         continue
 
                 elif resultado == "timeout":
-                    log.warning("[SUNEDU] Timeout → reintentar")
+                    log.warning("[SUNEDU] Timeout → refrescando página")
+                    ultimo_motivo = Motivo.SUNEDU_TIMEOUT
+                    self._recargar_pagina(driver)
                     continue
 
             except Exception as e:
                 log.error(f"[SUNEDU] Error intento {intento}: {e}")
-                time.sleep(2)
+                ultimo_motivo = f"{Motivo.SUNEDU_PAGINA_NO_CARGO}: {str(e)[:200]}"
+                self._recargar_pagina(driver)
 
-        raise RuntimeError(f"SUNEDU: Sin resultado tras {SUNEDU_MAX_RETRIES} intentos para DNI {dni}")
+        raise RuntimeError(f"{Motivo.SUNEDU_MAX_REINTENTOS} ({SUNEDU_MAX_RETRIES} intentos) | Último motivo: {ultimo_motivo}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -461,19 +553,23 @@ class MineduLogic:
             return None
 
     # ── MÉTODO PRINCIPAL: procesar un solo DNI ──
-    def procesar_un_dni(self, driver: Driver, dni: str) -> Optional[Dict[str, Any]]:
+    def procesar_un_dni(self, driver: Driver, dni: str) -> Dict[str, Any]:
         """
-        Retorna dict con datos si encuentra, None si no encuentra.
+        Retorna dict con:
+          - 'encontrado': bool
+          - 'datos': dict si encontrado
+          - 'motivo': str razón legible del resultado
         Lanza Exception si falla tras todos los reintentos.
         """
         need_reload = True
+        ultimo_motivo = Motivo.MINEDU_MAX_REINTENTOS
 
         for intento in range(1, MINEDU_MAX_RETRIES + 1):
             log.info(f"[MINEDU] DNI {dni} | Intento {intento}/{MINEDU_MAX_RETRIES}")
             try:
                 if need_reload:
                     driver.get(self.URL)
-                    time.sleep(2)
+                    time.sleep(1.5)  # carga rápida
                     need_reload = False
 
                 # Ingresar DNI
@@ -485,24 +581,26 @@ class MineduLogic:
                         dniField.dispatchEvent(new Event('change', {{ bubbles: true }}));
                     }}
                 """)
-                time.sleep(0.5)
+                time.sleep(0.3)
 
                 # Limpiar campo captcha
                 driver.run_js("""
                     var cap = document.querySelector('#CaptchaCodeText');
                     if (cap) { cap.removeAttribute('disabled'); cap.disabled = false; cap.value = ''; }
                 """)
-                time.sleep(0.3)
+                time.sleep(0.2)
 
                 # Resolver captcha
                 captcha_text = self.resolver_captcha(driver)
                 if not captcha_text:
+                    ultimo_motivo = Motivo.MINEDU_OCR_FALLO
                     if not self._refrescar_captcha(driver):
                         need_reload = True
-                    time.sleep(1)
+                        ultimo_motivo = Motivo.MINEDU_REFRESCO_CAPTCHA_FALLO
+                    time.sleep(0.5)
                     continue
 
-                time.sleep(0.5)
+                time.sleep(0.3)
 
                 # Ingresar captcha
                 driver.run_js(f"""
@@ -515,7 +613,7 @@ class MineduLogic:
                         cap.dispatchEvent(new Event('keyup', {{ bubbles: true }}));
                     }}
                 """)
-                time.sleep(0.5)
+                time.sleep(0.3)
 
                 # Click buscar
                 clicked = driver.run_js("""
@@ -528,43 +626,49 @@ class MineduLogic:
                 """)
                 if not clicked:
                     need_reload = True
+                    ultimo_motivo = Motivo.MINEDU_BOTON_NO_ENCONTRADO
                     continue
 
-                time.sleep(3)
+                time.sleep(2)  # espera reducida
 
                 # Error de captcha?
                 error_info = self._detectar_error_captcha(driver)
                 if error_info["hay_error"]:
                     log.warning(f"[MINEDU] Captcha incorrecto: {error_info['mensaje'][:60]}")
-                    time.sleep(1)
+                    ultimo_motivo = f"{Motivo.MINEDU_CAPTCHA_INCORRECTO}: {error_info['mensaje'][:100]}"
+                    time.sleep(0.5)
                     if not self._refrescar_captcha(driver):
                         need_reload = True
-                    time.sleep(1)
+                        ultimo_motivo = Motivo.MINEDU_REFRESCO_CAPTCHA_FALLO
+                    time.sleep(0.5)
                     continue
 
-                # Esperar resultado
+                # Esperar resultado (rápido)
                 resultado_html = ""
-                for _ in range(5):
+                for _ in range(4):
                     resultado_html = driver.run_js("""
                         var div = document.querySelector('#divResultado');
                         return div ? div.innerHTML : '';
                     """)
                     if resultado_html and len(resultado_html) > 50:
                         break
-                    time.sleep(1)
+                    time.sleep(0.8)
 
                 if resultado_html:
                     datos = self._extraer_datos(driver, dni)
                     if datos:
-                        return datos
-                    return None  # No encontrado
+                        return {"encontrado": True, "datos": datos, "motivo": "Encontrado en MINEDU"}
+                    return {"encontrado": False, "datos": None, "motivo": Motivo.MINEDU_NO_ENCONTRADO}
+                else:
+                    ultimo_motivo = Motivo.MINEDU_TIMEOUT
 
             except Exception as e:
                 log.error(f"[MINEDU] Error intento {intento}: {e}")
                 need_reload = True
-                time.sleep(1)
+                ultimo_motivo = f"{Motivo.MINEDU_PAGINA_NO_CARGO}: {str(e)[:200]}"
+                time.sleep(0.5)
 
-        raise RuntimeError(f"MINEDU: Sin resultado tras {MINEDU_MAX_RETRIES} intentos para DNI {dni}")
+        raise RuntimeError(f"{Motivo.MINEDU_MAX_REINTENTOS} ({MINEDU_MAX_RETRIES} intentos) | Último motivo: {ultimo_motivo}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -588,17 +692,23 @@ def sunedu_worker_loop(stop_event: threading.Event):
             # Tomar siguiente DNI en estado PENDIENTE
             reg = tomar_siguiente(Estado.PENDIENTE, Estado.PROCESANDO_SUNEDU)
             if reg is None:
-                # No hay trabajo → esperar
+                # No hay trabajo → esperar (polling rápido)
                 evt.wait(timeout=WORKER_POLL_INTERVAL)
                 continue
 
             log.info(f"[SUNEDU WORKER] Procesando DNI {reg.dni} (id={reg.id})")
             try:
+                # Extra delay for retried records
+                if reg.retry_count > 0:
+                    time.sleep(RETRY_EXTRA_SLEEP)
+
                 resultado = logic.procesar_un_dni(driver, reg.dni)
-                if resultado:
+                motivo = resultado.get("motivo", "")
+                
+                if resultado["encontrado"]:
                     # Encontrado en SUNEDU → guardar payload
-                    # resultado es una lista de dicts (puede haber múltiples grados)
-                    payload = resultado if isinstance(resultado, list) else [resultado]
+                    datos = resultado["datos"]
+                    payload = datos if isinstance(datos, list) else [datos]
                     actualizar_resultado(
                         reg.id,
                         Estado.FOUND_SUNEDU,
@@ -612,10 +722,13 @@ def sunedu_worker_loop(stop_event: threading.Event):
                         },
                     )
                     log.info(f"[SUNEDU WORKER] DNI {reg.dni} → FOUND_SUNEDU ({len(payload)} registro(s))")
+                    # Espera normal entre DNIs encontrados
+                    time.sleep(random.uniform(SUNEDU_SLEEP_MIN, SUNEDU_SLEEP_MAX))
                 else:
-                    # No encontrado → pasar a Minedu
-                    actualizar_resultado(reg.id, Estado.CHECK_MINEDU)
-                    log.info(f"[SUNEDU WORKER] DNI {reg.dni} → CHECK_MINEDU")
+                    # No encontrado → pasar a Minedu inmediatamente
+                    actualizar_resultado(reg.id, Estado.CHECK_MINEDU, error_msg=motivo)
+                    log.info(f"[SUNEDU WORKER] DNI {reg.dni} → CHECK_MINEDU ({motivo})")
+                    # NO espera adicional: la espera ya se hizo dentro de procesar_un_dni
 
             except Exception as e:
                 log.error(f"[SUNEDU WORKER] Error DNI {reg.dni}: {e}")
@@ -624,8 +737,6 @@ def sunedu_worker_loop(stop_event: threading.Event):
                 )
 
             procesados += 1
-            # Sleep anti-ban
-            time.sleep(random.uniform(SUNEDU_SLEEP_MIN, SUNEDU_SLEEP_MAX))
 
         log.info(f"[SUNEDU WORKER] Detenido. Procesados: {procesados}")
         return procesados
@@ -659,24 +770,31 @@ def minedu_worker_loop(stop_event: threading.Event):
 
             log.info(f"[MINEDU WORKER] Procesando DNI {reg.dni} (id={reg.id})")
             try:
+                # Extra delay for retried records
+                if reg.retry_count > 0:
+                    time.sleep(RETRY_EXTRA_SLEEP)
+
                 resultado = logic.procesar_un_dni(driver, reg.dni)
-                if resultado:
+                motivo = resultado.get("motivo", "")
+                
+                if resultado["encontrado"]:
+                    datos = resultado["datos"]
                     actualizar_resultado(
                         reg.id,
                         Estado.FOUND_MINEDU,
                         payload_minedu={
-                            "nombre_completo": resultado.get("nombre_completo", ""),
-                            "titulo": resultado.get("titulo", ""),
-                            "institucion": resultado.get("institucion", ""),
-                            "fecha_expedicion": resultado.get("fecha_expedicion", ""),
-                            "nivel": resultado.get("nivel", ""),
-                            "codigo_dre": resultado.get("codigo_dre", ""),
+                            "nombre_completo": datos.get("nombre_completo", ""),
+                            "titulo": datos.get("titulo", ""),
+                            "institucion": datos.get("institucion", ""),
+                            "fecha_expedicion": datos.get("fecha_expedicion", ""),
+                            "nivel": datos.get("nivel", ""),
+                            "codigo_dre": datos.get("codigo_dre", ""),
                         },
                     )
                     log.info(f"[MINEDU WORKER] DNI {reg.dni} → FOUND_MINEDU")
                 else:
-                    actualizar_resultado(reg.id, Estado.NOT_FOUND)
-                    log.info(f"[MINEDU WORKER] DNI {reg.dni} → NOT_FOUND")
+                    actualizar_resultado(reg.id, Estado.NOT_FOUND, error_msg=motivo)
+                    log.info(f"[MINEDU WORKER] DNI {reg.dni} → NOT_FOUND ({motivo})")
 
             except Exception as e:
                 log.error(f"[MINEDU WORKER] Error DNI {reg.dni}: {e}")
@@ -685,6 +803,7 @@ def minedu_worker_loop(stop_event: threading.Event):
                 )
 
             procesados += 1
+            # Espera corta entre consultas MINEDU (búsqueda rápida)
             time.sleep(random.uniform(MINEDU_SLEEP_MIN, MINEDU_SLEEP_MAX))
 
         log.info(f"[MINEDU WORKER] Detenido. Procesados: {procesados}")

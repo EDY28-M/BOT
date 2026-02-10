@@ -13,19 +13,26 @@ Endpoints:
 """
 import io
 import logging
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from config import Estado
 from database import (
     crear_lote, obtener_conteos, obtener_total,
     obtener_registros, obtener_lotes, init_db,
+    limpiar_todo, reintentar_no_encontrados,
+    hay_trabajo_pendiente, contar_retryables,
+    recuperar_procesando,
 )
 from orchestrator import Orchestrator
+
+from config import Estado
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,6 +55,22 @@ app.add_middleware(
 )
 
 orchestrator = Orchestrator()
+
+# ── Static files & dashboard ──
+# React build output (npm run build → ../static/dist)
+DIST_DIR = Path(__file__).parent / "static" / "dist"
+# Fallback to old static dir
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.get("/", include_in_schema=False)
+async def serve_dashboard():
+    """Serve the React SPA index.html (production build)."""
+    index = DIST_DIR / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    # Fallback to legacy static/index.html
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -128,6 +151,11 @@ def get_status():
     pendientes_sunedu = conteos.get(Estado.PENDIENTE, 0) + conteos.get(Estado.PROCESANDO_SUNEDU, 0)
     pendientes_minedu = conteos.get(Estado.CHECK_MINEDU, 0) + conteos.get(Estado.PROCESANDO_MINEDU, 0)
 
+    # Retry info
+    retryables = contar_retryables()
+    hay_pendiente = hay_trabajo_pendiente()
+    pipeline_idle = not hay_pendiente and total > 0
+
     return {
         "total": total,
         "terminados": terminados,
@@ -149,6 +177,11 @@ def get_status():
                 "no_encontrados": conteos.get(Estado.NOT_FOUND, 0),
                 "errores": conteos.get(Estado.ERROR_MINEDU, 0),
             },
+        },
+        "retry": {
+            "retryables": retryables,
+            "pipeline_idle": pipeline_idle,
+            "can_retry": pipeline_idle and retryables > 0,
         },
     }
 
@@ -213,6 +246,11 @@ def download_resultados(lote_id: Optional[int] = Query(None)):
 @app.post("/api/workers/start")
 def start_workers(worker: Optional[str] = Query(None, description="'sunedu', 'minedu' o vacío para ambos")):
     """Inicia workers. Sin parámetro inicia ambos."""
+    # Recuperar DNIs atrapados en PROCESANDO_* (por stop brusco o crash)
+    rec = recuperar_procesando()
+    if rec["sunedu_recuperados"] + rec["minedu_recuperados"] > 0:
+        log.info(f"[START] Recuperados {rec['sunedu_recuperados']} SUNEDU + {rec['minedu_recuperados']} MINEDU registros atrapados")
+
     if worker:
         if worker not in ("sunedu", "minedu"):
             raise HTTPException(400, "Worker debe ser 'sunedu' o 'minedu'")
@@ -243,8 +281,79 @@ def workers_status():
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  RETRY — Re-buscar NOT_FOUND y ERRORES
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.post("/api/retry")
+def retry_not_found():
+    """
+    Re-encola los registros NOT_FOUND y ERROR_* de vuelta a PENDIENTE
+    para que pasen otra vez por SUNEDU → MINEDU (una sola pasada).
+    Sin límite — el usuario controla cuántas veces pulsa el botón.
+    """
+    # Verificar si hay trabajo pendiente aún
+    if hay_trabajo_pendiente():
+        raise HTTPException(
+            400,
+            "Aún hay registros en proceso. Espere a que terminen antes de reintentar.",
+        )
+
+    resultado = reintentar_no_encontrados()
+
+    if resultado["reencolados"] == 0:
+        return {
+            "mensaje": "No hay registros para reintentar",
+            **resultado,
+        }
+
+    log.info(f"[RETRY] Re-encolados {resultado['reencolados']} registros para reintento")
+
+    # Auto-iniciar workers si no están corriendo
+    any_running = any(
+        info.is_running for info in orchestrator.workers.values()
+    )
+    if not any_running:
+        orchestrator.start_all()
+        log.info("[RETRY] Workers reiniciados automáticamente")
+
+    return {
+        "mensaje": f"Se re-encolaron {resultado['reencolados']} registros para nueva búsqueda",
+        "workers_started": not any_running,
+        **resultado,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  LIMPIAR TODO
+# ═══════════════════════════════════════════════════════════════════════
+
+@app.post("/api/limpiar")
+def limpiar_datos():
+    """Detiene workers y elimina todos los registros y lotes."""
+    # Primero detener workers si están corriendo
+    orchestrator.stop_all()
+    log.info("[LIMPIAR] Workers detenidos")
+
+    # Eliminar todos los datos
+    resultado = limpiar_todo()
+    log.info(f"[LIMPIAR] Eliminados {resultado['registros_eliminados']} registros y {resultado['lotes_eliminados']} lotes")
+
+    return {
+        "mensaje": "Todo limpiado correctamente",
+        **resultado,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════════
+
+# Mount static files (after all API routes)
+# Serve React build assets first, then fallback static
+if DIST_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 
 if __name__ == "__main__":
     import uvicorn
@@ -252,5 +361,6 @@ if __name__ == "__main__":
 
     init_db()
     log.info(f"[API] Iniciando en http://{API_HOST}:{API_PORT}")
-    log.info("[API] Documentación en http://{API_HOST}:{API_PORT}/docs")
+    log.info(f"[API] Dashboard en http://{API_HOST}:{API_PORT}/")
+    log.info(f"[API] Docs en http://{API_HOST}:{API_PORT}/docs")
     uvicorn.run(app, host=API_HOST, port=API_PORT, log_level="info")
