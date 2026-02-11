@@ -1,0 +1,301 @@
+
+import time
+import base64
+import logging
+from datetime import datetime
+from typing import Optional, Dict, Any
+
+from botasaurus.browser import Driver
+from app.core.config import MINEDU_URL, MINEDU_MAX_RETRIES
+
+log = logging.getLogger("MINEDU")
+
+class Motivo:
+    MINEDU_NO_ENCONTRADO = "No se encontró título en MINEDU"
+    MINEDU_CAPTCHA_FALLO = "Falló la verificación del captcha en MINEDU"
+    MINEDU_CAPTCHA_INCORRECTO = "Captcha incorrecto en MINEDU - reintentando"
+    MINEDU_OCR_FALLO = "Falló el OCR del captcha en MINEDU"
+    MINEDU_BOTON_NO_ENCONTRADO = "No se encontró el botón de consulta en MINEDU"
+    MINEDU_PAGINA_NO_CARGO = "La página de MINEDU no cargó correctamente"
+    MINEDU_TIMEOUT = "Tiempo de espera agotado en MINEDU"
+    MINEDU_MAX_REINTENTOS = "Se agotaron todos los reintentos en MINEDU"
+    MINEDU_REFRESCO_CAPTCHA_FALLO = "No se pudo refrescar el captcha en MINEDU"
+
+# Alias for compatibility if needed
+NO_ENCONTRADO = Motivo.MINEDU_NO_ENCONTRADO
+CAPTCHA_INCORRECTO = Motivo.MINEDU_CAPTCHA_INCORRECTO
+OCR_FALLO = Motivo.MINEDU_OCR_FALLO
+BOTON_NO_ENCONTRADO = Motivo.MINEDU_BOTON_NO_ENCONTRADO
+TIMEOUT = Motivo.MINEDU_TIMEOUT
+MAX_REINTENTOS = Motivo.MINEDU_MAX_REINTENTOS
+REFRESCO_CAPTCHA_FALLO = Motivo.MINEDU_REFRESCO_CAPTCHA_FALLO
+
+
+class MineduScraper:
+    """Lógica de scraping de MINEDU con resolución de captcha OCR. (Portado directo de workers.py)"""
+
+    URL = MINEDU_URL
+
+    def __init__(self):
+        try:
+            import ddddocr
+            self.ocr = ddddocr.DdddOcr(show_ad=False)
+        except ImportError:
+            log.error("[MINEDU] ddddocr no instalado. pip install ddddocr")
+            self.ocr = None
+
+    def resolver_captcha(self, driver: Driver) -> str:
+        if not self.ocr:
+            return ""
+        try:
+            b64 = driver.run_js("""
+                var img = document.querySelector('#imgCaptcha');
+                return img ? img.src : null;
+            """)
+            if not b64 or "base64," not in b64:
+                return ""
+            b64 = b64.split("base64,")[1]
+            img_bytes = base64.b64decode(b64)
+            res = self.ocr.classification(img_bytes)
+            log.info(f"[MINEDU][CAPTCHA] OCR: {res}")
+            return res
+        except Exception as e:
+            log.error(f"[MINEDU][CAPTCHA] Error: {e}")
+            return ""
+
+    def _detectar_error_captcha(self, driver: Driver) -> dict:
+        return driver.run_js("""
+            var result = { hay_error: false, mensaje: '' };
+            var toast = document.querySelector('.toast-message');
+            if (toast && toast.offsetParent !== null) {
+                result.hay_error = true;
+                result.mensaje = toast.innerText.trim();
+                return result;
+            }
+            var tc = document.querySelector('#toast-container');
+            if (tc) {
+                var tm = tc.querySelector('.toast-message');
+                if (tm) {
+                    var txt = tm.innerText.trim();
+                    if (txt) { result.hay_error = true; result.mensaje = txt; }
+                }
+            }
+            var val = document.querySelector('span[data-valmsg-for="CaptchaCodeText"]');
+            if (val && val.innerText) { result.hay_error = true; if (!result.mensaje) result.mensaje = val.innerText.trim(); }
+            var alerts = document.querySelectorAll('.alert-danger, .alert-warning');
+            for (var i = 0; i < alerts.length; i++) {
+                var txt = alerts[i].innerText.toLowerCase();
+                if (txt.includes('captcha') || txt.includes('código') || txt.includes('verificación')) {
+                    result.hay_error = true;
+                    if (!result.mensaje) result.mensaje = alerts[i].innerText.trim();
+                }
+            }
+            return result;
+        """)
+
+    def _refrescar_captcha(self, driver: Driver) -> bool:
+        try:
+            old_src = driver.run_js("""
+                var img = document.querySelector('#imgCaptcha');
+                return img ? img.src : null;
+            """)
+            driver.run_js("""
+                var toast = document.querySelector('#toast-container');
+                if (toast) toast.remove();
+                var swal = document.querySelector('.swal2-close');
+                if (swal) swal.click();
+            """)
+            time.sleep(0.3)
+            driver.run_js("""
+                var btn = document.querySelector('#CapImageRefresh');
+                if (btn) {
+                    var evt = new MouseEvent('click', {bubbles: true, cancelable: true, view: window});
+                    btn.dispatchEvent(evt);
+                }
+            """)
+            for _ in range(10):
+                time.sleep(0.5)
+                new_src = driver.run_js("""
+                    var img = document.querySelector('#imgCaptcha');
+                    return img ? img.src : null;
+                """)
+                if new_src and new_src != old_src:
+                    return True
+            return False
+        except Exception:
+            return False
+
+    def _extraer_datos(self, driver: Driver, dni: str) -> Optional[Dict[str, Any]]:
+        try:
+            data = driver.run_js("""
+                var result = {nombres: '', titulo: '', institucion: '', fecha: '', nivel: '', codigo: ''};
+                var div = document.querySelector('#divResultado');
+                if (!div) return null;
+                var tables = div.querySelectorAll('table.gobpe-res-tabla-cuerpo');
+                for (var t = 0; t < tables.length; t++) {
+                    var rows = tables[t].querySelectorAll('tbody tr');
+                    for (var i = 0; i < rows.length; i++) {
+                        var cells = rows[i].querySelectorAll('td');
+                        if (cells.length === 1) continue;
+                        if (cells.length >= 3) {
+                            var cell1 = cells[0].innerText.trim();
+                            var lines1 = cell1.split('\\n');
+                            if (lines1.length > 0) result.nombres = lines1[0].trim();
+
+                            var cell2 = cells[1].innerText.trim();
+                            var lines2 = cell2.split('\\n');
+                            for (var j = 0; j < lines2.length; j++) {
+                                var line = lines2[j].trim();
+                                if (!line.includes(':') && line.length > 5 && !result.titulo) result.titulo = line;
+                                if (line.includes('Nivel:')) result.nivel = line.replace('Nivel:', '').trim();
+                                if (line.includes('Fecha de emisión:') || line.includes('Fecha emisión:'))
+                                    result.fecha = line.split(':')[1].trim();
+                                if (line.includes('Código DRE:')) result.codigo = line.split(':')[1].trim();
+                            }
+
+                            var cell3 = cells[2].innerText.trim();
+                            var lines3 = cell3.split('\\n');
+                            if (lines3.length > 0) result.institucion = lines3[0].trim();
+
+                            if (result.titulo) break;
+                        }
+                    }
+                    if (result.titulo) break;
+                }
+                return result;
+            """)
+            if data and data.get("titulo"):
+                return {
+                    "nombre_completo": data.get("nombres", ""),
+                    "titulo": data.get("titulo", ""),
+                    "institucion": data.get("institucion", ""),
+                    "nivel": data.get("nivel", ""),
+                    "fecha_expedicion": data.get("fecha", ""),
+                    "codigo_dre": data.get("codigo", ""),
+                    "fecha_consulta": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            return None
+        except Exception as e:
+            log.error(f"[MINEDU][EXTRACT] Error: {e}")
+            return None
+
+    # ── MÉTODO PRINCIPAL: procesar un solo DNI (Alias para compatibilidad) ──
+    def procesar_dni(self, driver: Driver, dni: str) -> Dict[str, Any]:
+        return self.procesar_un_dni(driver, dni)
+
+    def procesar_un_dni(self, driver: Driver, dni: str) -> Dict[str, Any]:
+        """
+        Retorna dict con:
+          - 'encontrado': bool
+          - 'datos': dict si encontrado
+          - 'motivo': str razón legible del resultado
+        Lanza Exception si falla tras todos los reintentos.
+        """
+        need_reload = True
+        ultimo_motivo = Motivo.MINEDU_MAX_REINTENTOS
+
+        for intento in range(1, MINEDU_MAX_RETRIES + 1):
+            log.info(f"[MINEDU] DNI {dni} | Intento {intento}/{MINEDU_MAX_RETRIES}")
+            try:
+                if need_reload:
+                    driver.get(self.URL)
+                    time.sleep(1.5)  # carga rápida
+                    need_reload = False
+
+                # Ingresar DNI
+                driver.run_js(f"""
+                    var dniField = document.querySelector('#DOCU_NUM');
+                    if (dniField) {{
+                        dniField.value = '{dni}';
+                        dniField.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        dniField.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                """)
+                time.sleep(0.3)
+
+                # Limpiar campo captcha
+                driver.run_js("""
+                    var cap = document.querySelector('#CaptchaCodeText');
+                    if (cap) { cap.removeAttribute('disabled'); cap.disabled = false; cap.value = ''; }
+                """)
+                time.sleep(0.2)
+
+                # Resolver captcha
+                captcha_text = self.resolver_captcha(driver)
+                if not captcha_text:
+                    ultimo_motivo = Motivo.MINEDU_OCR_FALLO
+                    if not self._refrescar_captcha(driver):
+                        need_reload = True
+                        ultimo_motivo = Motivo.MINEDU_REFRESCO_CAPTCHA_FALLO
+                    time.sleep(0.5)
+                    continue
+
+                time.sleep(0.3)
+
+                # Ingresar captcha
+                driver.run_js(f"""
+                    var cap = document.querySelector('#CaptchaCodeText');
+                    if (cap) {{
+                        cap.removeAttribute('disabled'); cap.disabled = false;
+                        cap.value = '{captcha_text}';
+                        cap.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        cap.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        cap.dispatchEvent(new Event('keyup', {{ bubbles: true }}));
+                    }}
+                """)
+                time.sleep(0.3)
+
+                # Click buscar
+                clicked = driver.run_js("""
+                    var btn = document.querySelector('#btnConsultar');
+                    if (btn) {
+                        btn.removeAttribute('disabled'); btn.disabled = false;
+                        btn.classList.remove('inactivo'); btn.click(); return true;
+                    }
+                    return false;
+                """)
+                if not clicked:
+                    need_reload = True
+                    ultimo_motivo = Motivo.MINEDU_BOTON_NO_ENCONTRADO
+                    continue
+
+                time.sleep(2)  # espera reducida
+
+                # Error de captcha?
+                error_info = self._detectar_error_captcha(driver)
+                if error_info["hay_error"]:
+                    log.warning(f"[MINEDU] Captcha incorrecto: {error_info['mensaje'][:60]}")
+                    ultimo_motivo = f"{Motivo.MINEDU_CAPTCHA_INCORRECTO}: {error_info['mensaje'][:100]}"
+                    time.sleep(0.5)
+                    if not self._refrescar_captcha(driver):
+                        need_reload = True
+                        ultimo_motivo = Motivo.MINEDU_REFRESCO_CAPTCHA_FALLO
+                    time.sleep(0.5)
+                    continue
+
+                # Esperar resultado (rápido)
+                resultado_html = ""
+                for _ in range(4):
+                    resultado_html = driver.run_js("""
+                        var div = document.querySelector('#divResultado');
+                        return div ? div.innerHTML : '';
+                    """)
+                    if resultado_html and len(resultado_html) > 50:
+                        break
+                    time.sleep(0.8)
+
+                if resultado_html:
+                    datos = self._extraer_datos(driver, dni)
+                    if datos:
+                        return {"encontrado": True, "datos": datos, "motivo": "Encontrado en MINEDU"}
+                    return {"encontrado": False, "datos": None, "motivo": Motivo.MINEDU_NO_ENCONTRADO}
+                else:
+                    ultimo_motivo = Motivo.MINEDU_TIMEOUT
+
+            except Exception as e:
+                log.error(f"[MINEDU] Error intento {intento}: {e}")
+                need_reload = True
+                ultimo_motivo = f"{Motivo.MINEDU_PAGINA_NO_CARGO}: {str(e)[:200]}"
+                time.sleep(0.5)
+
+        raise RuntimeError(f"{Motivo.MINEDU_MAX_REINTENTOS} ({MINEDU_MAX_RETRIES} intentos) | Último motivo: {ultimo_motivo}")

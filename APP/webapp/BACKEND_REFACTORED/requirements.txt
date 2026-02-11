@@ -1,0 +1,12 @@
+
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pandas
+openpyxl
+botasaurus
+ddddocr
+requests
+python-multipart
+# Add any other dependencies from original project
