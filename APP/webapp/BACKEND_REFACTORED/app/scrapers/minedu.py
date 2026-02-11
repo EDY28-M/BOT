@@ -10,6 +10,52 @@ from app.core.config import MINEDU_URL, MINEDU_MAX_RETRIES
 
 log = logging.getLogger("MINEDU")
 
+# ═══ Monitoreo Profesional — Script espía inyectado via CDP ═══════════════
+MONITOR_INIT_SCRIPT = """
+(function() {
+    if (window.__monitorActive) return;
+    window.__monitorActive = true;
+    window.__capturedEvents = [];
+    function pushEvent(data) {
+        if (window.__capturedEvents.length > 300) window.__capturedEvents.shift();
+        data.ts = new Date().toISOString();
+        window.__capturedEvents.push(data);
+    }
+    window.onerror = function(message, source, lineno, colno, error) {
+        pushEvent({ type: 'JS_ERROR', message: String(message), source: String(source || ''), line: lineno, stack: error ? String(error.stack || '').substring(0, 300) : '' });
+    };
+    window.addEventListener('unhandledrejection', function(event) {
+        pushEvent({ type: 'PROMISE_ERROR', message: event.reason ? String(event.reason.message || event.reason).substring(0, 300) : 'unknown' });
+    });
+    ['log', 'warn', 'error', 'info'].forEach(function(level) {
+        var original = console[level];
+        console[level] = function() {
+            pushEvent({ type: 'CONSOLE', level: level, message: Array.from(arguments).map(function(a) { return String(a); }).join(' ').substring(0, 400) });
+            original.apply(console, arguments);
+        };
+    });
+    var originalFetch = window.fetch;
+    window.fetch = function() {
+        var url = arguments[0], opts = arguments[1] || {}, method = opts.method || 'GET';
+        return originalFetch.apply(this, arguments).then(function(r) {
+            if (!r.ok) pushEvent({ type: 'HTTP_ERROR', url: String(url).substring(0, 200), status: r.status, method: method });
+            return r;
+        }).catch(function(e) {
+            pushEvent({ type: 'NETWORK_ERROR', url: String(url).substring(0, 200), method: method, message: String(e.message).substring(0, 200) });
+            throw e;
+        });
+    };
+    var origOpen = XMLHttpRequest.prototype.open, origSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function(m, u) { this.__monMethod = m; this.__monUrl = String(u).substring(0, 200); origOpen.apply(this, arguments); };
+    XMLHttpRequest.prototype.send = function() {
+        var self = this;
+        this.addEventListener('error', function() { pushEvent({ type: 'NETWORK_ERROR', method: self.__monMethod, url: self.__monUrl, message: 'XHR failed' }); });
+        this.addEventListener('load', function() { if (self.status >= 400) pushEvent({ type: 'HTTP_ERROR', method: self.__monMethod, url: self.__monUrl, status: self.status }); });
+        origSend.apply(this, arguments);
+    };
+})();
+"""
+
 class Motivo:
     MINEDU_NO_ENCONTRADO = "No se encontró título en MINEDU"
     MINEDU_CAPTCHA_FALLO = "Falló la verificación del captcha en MINEDU"
@@ -32,17 +78,69 @@ REFRESCO_CAPTCHA_FALLO = Motivo.MINEDU_REFRESCO_CAPTCHA_FALLO
 
 
 class MineduScraper:
-    """Lógica de scraping de MINEDU con resolución de captcha OCR. (Portado directo de workers.py)"""
+    """Lógica de scraping de MINEDU con resolución de captcha OCR."""
 
     URL = MINEDU_URL
 
     def __init__(self):
+        self._cdp_configured = False
         try:
             import ddddocr
             self.ocr = ddddocr.DdddOcr(show_ad=False)
         except ImportError:
             log.error("[MINEDU] ddddocr no instalado. pip install ddddocr")
             self.ocr = None
+
+    # ═══ Monitoreo Profesional — CDP Bridge ═══════════════════════════
+    def _setup_cdp_monitoring(self, driver: Driver):
+        if self._cdp_configured:
+            return
+        try:
+            selenium_driver = getattr(driver, '_driver', None) or getattr(driver, 'driver', None)
+            if selenium_driver and hasattr(selenium_driver, 'execute_cdp_cmd'):
+                selenium_driver.execute_cdp_cmd(
+                    'Page.addScriptToEvaluateOnNewDocument',
+                    {'source': MONITOR_INIT_SCRIPT}
+                )
+                self._cdp_configured = True
+                log.info("[MONITOR] ✅ CDP monitoring configurado para MINEDU")
+                return
+        except Exception as e:
+            log.warning(f"[MONITOR] CDP no disponible: {e}")
+        self._inject_monitor_fallback(driver)
+
+    def _inject_monitor_fallback(self, driver: Driver):
+        try:
+            driver.run_js(MONITOR_INIT_SCRIPT)
+        except Exception:
+            pass
+
+    def _collect_events(self, driver: Driver, context: str = ""):
+        try:
+            events = driver.run_js("var e = window.__capturedEvents || []; window.__capturedEvents = []; return e;")
+            if not events: return
+            for evt in events:
+                tipo = evt.get('type', 'UNKNOWN')
+                level = evt.get('level', '')
+                if tipo == 'CONSOLE':
+                    msg = f"[BROWSER][CONSOLE.{level.upper()}] {evt.get('message', '')}"
+                elif tipo == 'JS_ERROR':
+                    msg = f"[BROWSER][JS_ERROR] {evt.get('message', '')} @ {evt.get('source', '')}:{evt.get('line', '')}"
+                elif tipo == 'HTTP_ERROR':
+                    msg = f"[BROWSER][HTTP_{evt.get('status', '???')}] {evt.get('method', '')} {evt.get('url', '')}"
+                elif tipo == 'NETWORK_ERROR':
+                    msg = f"[BROWSER][NET_FAIL] {evt.get('method', '')} {evt.get('url', '')} — {evt.get('message', '')}"
+                else:
+                    msg = f"[BROWSER][{tipo}] {evt}"
+                if context: msg = f"[{context}] {msg}"
+                if tipo in ('JS_ERROR', 'NETWORK_ERROR', 'PROMISE_ERROR'):
+                    log.error(msg)
+                elif tipo == 'HTTP_ERROR':
+                    log.warning(msg)
+                else:
+                    log.debug(msg)
+        except Exception:
+            pass
 
     def resolver_captcha(self, driver: Driver) -> str:
         if not self.ocr:
@@ -105,7 +203,7 @@ class MineduScraper:
                 var swal = document.querySelector('.swal2-close');
                 if (swal) swal.click();
             """)
-            time.sleep(0.3)
+            time.sleep(0.5)
             driver.run_js("""
                 var btn = document.querySelector('#CapImageRefresh');
                 if (btn) {
@@ -199,8 +297,11 @@ class MineduScraper:
             try:
                 if need_reload:
                     driver.get(self.URL)
-                    time.sleep(1.5)  # carga rápida
+                    time.sleep(2)  # carga rápida (Bot: 2s)
                     need_reload = False
+                    self._setup_cdp_monitoring(driver)
+                    if not self._cdp_configured:
+                        self._inject_monitor_fallback(driver)
 
                 # Ingresar DNI
                 driver.run_js(f"""
@@ -211,14 +312,14 @@ class MineduScraper:
                         dniField.dispatchEvent(new Event('change', {{ bubbles: true }}));
                     }}
                 """)
-                time.sleep(0.3)
+                time.sleep(0.5)
 
                 # Limpiar campo captcha
                 driver.run_js("""
                     var cap = document.querySelector('#CaptchaCodeText');
                     if (cap) { cap.removeAttribute('disabled'); cap.disabled = false; cap.value = ''; }
                 """)
-                time.sleep(0.2)
+                time.sleep(0.3)
 
                 # Resolver captcha
                 captcha_text = self.resolver_captcha(driver)
@@ -227,10 +328,10 @@ class MineduScraper:
                     if not self._refrescar_captcha(driver):
                         need_reload = True
                         ultimo_motivo = Motivo.MINEDU_REFRESCO_CAPTCHA_FALLO
-                    time.sleep(0.5)
+                    time.sleep(1)
                     continue
 
-                time.sleep(0.3)
+                time.sleep(0.5)
 
                 # Ingresar captcha
                 driver.run_js(f"""
@@ -243,14 +344,17 @@ class MineduScraper:
                         cap.dispatchEvent(new Event('keyup', {{ bubbles: true }}));
                     }}
                 """)
-                time.sleep(0.3)
+                time.sleep(0.5)
 
-                # Click buscar
+                # Click buscar (Logic from minedu_bot.py)
                 clicked = driver.run_js("""
                     var btn = document.querySelector('#btnConsultar');
                     if (btn) {
-                        btn.removeAttribute('disabled'); btn.disabled = false;
-                        btn.classList.remove('inactivo'); btn.click(); return true;
+                        btn.removeAttribute('disabled');
+                        btn.disabled = false;
+                        btn.classList.remove('inactivo');
+                        btn.click();
+                        return true;
                     }
                     return false;
                 """)
@@ -259,30 +363,36 @@ class MineduScraper:
                     ultimo_motivo = Motivo.MINEDU_BOTON_NO_ENCONTRADO
                     continue
 
-                time.sleep(2)  # espera reducida
+                time.sleep(3)  # Espera post-click del Bot
+
+                # Collect browser logs after search
+                self._collect_events(driver, f"DNI={dni} POST_SEARCH")
 
                 # Error de captcha?
                 error_info = self._detectar_error_captcha(driver)
                 if error_info["hay_error"]:
                     log.warning(f"[MINEDU] Captcha incorrecto: {error_info['mensaje'][:60]}")
                     ultimo_motivo = f"{Motivo.MINEDU_CAPTCHA_INCORRECTO}: {error_info['mensaje'][:100]}"
-                    time.sleep(0.5)
+                    time.sleep(1)
                     if not self._refrescar_captcha(driver):
                         need_reload = True
                         ultimo_motivo = Motivo.MINEDU_REFRESCO_CAPTCHA_FALLO
-                    time.sleep(0.5)
+                    time.sleep(1)
                     continue
 
-                # Esperar resultado (rápido)
+                # Collect logs before checking results
+                self._collect_events(driver, f"DNI={dni} PRE_RESULT")
+
+                # Esperar resultado
                 resultado_html = ""
-                for _ in range(4):
+                for _ in range(5): # Bot uses 5 check attempts
                     resultado_html = driver.run_js("""
                         var div = document.querySelector('#divResultado');
                         return div ? div.innerHTML : '';
                     """)
                     if resultado_html and len(resultado_html) > 50:
                         break
-                    time.sleep(0.8)
+                    time.sleep(1)
 
                 if resultado_html:
                     datos = self._extraer_datos(driver, dni)
@@ -294,8 +404,9 @@ class MineduScraper:
 
             except Exception as e:
                 log.error(f"[MINEDU] Error intento {intento}: {e}")
+                self._collect_events(driver, f"DNI={dni} EXCEPTION")
                 need_reload = True
                 ultimo_motivo = f"{Motivo.MINEDU_PAGINA_NO_CARGO}: {str(e)[:200]}"
-                time.sleep(0.5)
+                time.sleep(2)
 
         raise RuntimeError(f"{Motivo.MINEDU_MAX_REINTENTOS} ({MINEDU_MAX_RETRIES} intentos) | Último motivo: {ultimo_motivo}")

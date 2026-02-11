@@ -60,7 +60,8 @@ def sunedu_worker_loop(driver: Driver, data):
                     error_msg=None
                 )
                 log.info(f"[SUNEDU] Encontrado {dni}")
-                driver.short_random_sleep()
+                # Espera 2 segundos antes de pasar al siguiente
+                time.sleep(2)
             else:
                 # No encontrado -> Pasa a Minedu
                 repo.actualizar_resultado(
@@ -69,6 +70,8 @@ def sunedu_worker_loop(driver: Driver, data):
                     error_msg=resultado["motivo"]
                 )
                 log.info(f"[SUNEDU] No encontrado {dni} -> MINEDU")
+                # Espera 2 segundos antes de pasar al siguiente
+                time.sleep(2)
 
         except Exception as e:
             if "item" in locals() and item:

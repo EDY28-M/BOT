@@ -1,6 +1,6 @@
 
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, HTTPException, Query
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from typing import List, Optional
 
 from app.db.repository import DniRepository
@@ -131,8 +131,8 @@ def start_workers(background_tasks: BackgroundTasks):
 
 @router.post("/workers/stop")
 def stop_workers():
-    orchestrator.pause_workers()
-    return {"message": "Workers pausados"}
+    orchestrator.stop_workers()
+    return {"message": "Workers detenidos"}
 
 @router.get("/workers/status")
 def worker_status():
@@ -176,8 +176,8 @@ def exportar_excel(lote_id: Optional[int] = Query(None)):
         rows.append(row)
 
     excel_io = ExcelService.generate_excel(rows)
-    return FileResponse(
-        path=excel_io, 
-        filename="resultados.xlsx", 
-        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    return StreamingResponse(
+        excel_io, 
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={"Content-Disposition": "attachment; filename=resultados.xlsx"}
     )
