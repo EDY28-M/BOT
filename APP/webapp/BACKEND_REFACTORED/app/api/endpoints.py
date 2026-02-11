@@ -1,6 +1,6 @@
 
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, HTTPException, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, FileResponse
 from typing import List, Optional
 
 from app.db.repository import DniRepository
@@ -176,8 +176,8 @@ def exportar_excel(lote_id: Optional[int] = Query(None)):
         rows.append(row)
 
     excel_io = ExcelService.generate_excel(rows)
-    return StreamingResponse(
-        excel_io, 
-        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        headers={"Content-Disposition": "attachment; filename=resultados.xlsx"}
+    return FileResponse(
+        path=excel_io, 
+        filename="resultados.xlsx", 
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
