@@ -34,16 +34,16 @@ class Orchestrator:
         log.info(f"[{self.session_id[:8]}] Iniciados {len(self.threads)} workers.")
 
     def stop_workers(self):
-        """Señala parada y espera a los threads."""
+        """Señala parada y espera a los threads (Chrome cierra)."""
         log.info(f"[{self.session_id[:8]}] Deteniendo workers...")
         self.stop_event.set()
         self.pause_event.set()  # Ensure they are not stuck in pause
         
         for t in self.threads:
             if t.is_alive():
-                t.join(timeout=5)
+                t.join(timeout=15)  # Dar tiempo a Chrome para cerrar
         self.threads = []
-        log.info(f"[{self.session_id[:8]}] Workers detenidos.")
+        log.info(f"[{self.session_id[:8]}] Workers detenidos y Chrome cerrado.")
 
     def pause_workers(self):
         log.info(f"[{self.session_id[:8]}] Pausando workers...")

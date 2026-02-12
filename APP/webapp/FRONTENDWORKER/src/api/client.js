@@ -9,10 +9,10 @@ const BASE = ''  // same origin
 // ─── Session Management ───
 
 function getSessionId() {
-  let sid = localStorage.getItem('sicgtd_session_id')
+  let sid = localStorage.getItem('SICGT_session_id')
   if (!sid) {
     sid = crypto.randomUUID()
-    localStorage.setItem('sicgtd_session_id', sid)
+    localStorage.setItem('SICGT_session_id', sid)
   }
   return sid
 }
@@ -95,7 +95,7 @@ export async function downloadResultados() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'resultados_sicgtd.xlsx'
+  a.download = 'resultados_SICGT.xlsx'
   document.body.appendChild(a)
   a.click()
   a.remove()

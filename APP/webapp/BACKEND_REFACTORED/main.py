@@ -11,7 +11,7 @@ import asyncio
 
 log = logging.getLogger("STARTUP")
 
-app = FastAPI(title="SICGTD — Sistema de Consulta de Grados y Títulos")
+app = FastAPI(title="SICGT — Sistema de Consulta de Grados y Títulos")
 
 # CORS
 origins = [
@@ -52,7 +52,7 @@ def on_startup():
     else:
         log.info("[STARTUP] No hay DNIs atascados en PROCESANDO")
 
-    log.info("[STARTUP] SICGTD Backend listo — Multi-sesión activo")
+    log.info("[STARTUP] SICGT Backend listo — Multi-sesión activo")
 
 
 async def cleanup_loop():

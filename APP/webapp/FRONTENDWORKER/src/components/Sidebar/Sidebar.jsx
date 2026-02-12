@@ -14,10 +14,10 @@ function Sidebar() {
       <div className="p-6">
         {/* Branding */}
         <div className="flex items-center gap-3 mb-8">
-          <img src={logoImg} alt="SICGTD" className="h-11 w-auto object-contain" />
+          <img src={logoImg} alt="SICGT" className="h-11 w-auto object-contain" />
           <div>
             <h1 className="font-bold text-lg leading-tight tracking-wide text-gray-900">
-              SICGTD
+              SICGT
             </h1>
             <p className="text-[10px] text-gray-400 font-medium tracking-wide">
               Sistema de Consulta de Grados y Títulos
@@ -40,7 +40,7 @@ function Sidebar() {
       </div>
 
       <div className="p-4 border-t border-gray-100 text-center">
-        <p className="text-[10px] text-gray-400 font-medium">SICGTD v3.0 — Conexión Segura</p>
+        <p className="text-[10px] text-gray-400 font-medium">SICGT v3.0 — Conexión Segura</p>
       </div>
     </aside>
   )
