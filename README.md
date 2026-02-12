@@ -151,6 +151,30 @@ Si un worker se cae o el navegador se cierra inesperadamente:
 
 ---
 
+## Formato del Archivo Excel (Requisito Previo)
+
+> ⚠️ **ANTES DE EMPEZAR**: Debes tener listo tu archivo Excel (`.xlsx`) antes de abrir el sistema.
+
+El archivo debe ser extremadamente simple. Se recomienda una **única columna** con los números de DNI. No se requieren fórmulas ni estilos.
+
+**Ejemplo visual de cómo debe verse tu Excel:**
+
+| | A |
+|---|---|
+| **1** | **DNI** |
+| **2** | 27470171 |
+| **3** | 88017131 |
+| **4** | 93732267 |
+| **5** | 10173113 |
+| **6** | 10777845 |
+| **7** | ... |
+
+- La cabecera "DNI" es opcional pero recomendada.
+- El sistema detectará automáticamente la columna con los números de 8 dígitos.
+- **Evita** celdas vacías entre medias o filas con texto que no sea DNI.
+
+---
+
 ## Validación de DNIs en Importación
 
 Al subir un archivo Excel/CSV/TXT:
