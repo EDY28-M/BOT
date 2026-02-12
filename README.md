@@ -1,4 +1,4 @@
-# 🤖 BACKEND_REFACTORED — DNI Automation System
+# 🤖 SISTEMA DE CONSULTAS GRADOS Y TITULOS(SCGT) — DNI Automation System
 
 ## � Requisitos del Equipo
 
