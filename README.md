@@ -40,30 +40,36 @@ Backend refactorizado en **Python (FastAPI + Botasaurus)** para automatización 
 ## 🏗️ Arquitectura
 
 ```
-BACKEND_REFACTORED/
-├── main.py                      # Entry point (Uvicorn + CORS + Auto-recovery)
-├── app/
-│   ├── core/
-│   │   ├── config.py            # URLs, estados, tiempos, constantes
-│   │   └── logging.py           # Configuración de logging
-│   ├── db/
-│   │   ├── session.py           # SQLAlchemy engine + sessions
-│   │   ├── models.py            # Modelos: Registro, Lote
-│   │   └── repository.py        # CRUD: tomar_siguiente, actualizar_resultado, recuperar_procesando
-│   ├── scrapers/
-│   │   ├── sunedu.py            # 🔍 Scraper SUNEDU (Botasaurus + Monitoring)
-│   │   ├── minedu.py            # 🔍 Scraper MINEDU (Botasaurus + OCR + Monitoring)
-│   │   └── node_engine/         # (Motor Node.js experimental, no activo)
-│   ├── services/
-│   │   ├── excel_service.py     # Parseo + Exportación Excel (3 hojas, colores, Aptos Narrow)
-│   │   └── retry_service.py     # Lógica de reintentos
-│   ├── workers/
-│   │   ├── loops.py             # Worker loops (sunedu_worker_loop, minedu_worker_loop)
-│   │   └── orchestrator.py      # Gestor de threads (start/stop/pause)
-│   └── api/
-│       └── endpoints.py         # FastAPI routes (/api/...)
-└── data/
-    └── registros.db             # SQLite database
+webapp/
+├── BACKEND_REFACTORED/
+│   ├── main.py                      # Entry point (Uvicorn + CORS + Auto-recovery)
+│   ├── app/
+│   │   ├── core/
+│   │   │   ├── config.py            # URLs, estados, tiempos, constantes
+│   │   │   └── logging.py           # Configuración de logging
+│   │   ├── db/
+│   │   │   ├── session.py           # SQLAlchemy engine + sessions
+│   │   │   ├── models.py            # Modelos: Registro, Lote
+│   │   │   └── repository.py        # CRUD: tomar_siguiente, actualizar_resultado, recuperar_procesando
+│   │   ├── scrapers/
+│   │   │   ├── sunedu.py            # 🔍 Scraper SUNEDU (Botasaurus + Monitoring)
+│   │   │   ├── minedu.py            # 🔍 Scraper MINEDU (Botasaurus + OCR + Monitoring)
+│   │   │   └── node_engine/         # (Motor Node.js experimental, no activo)
+│   │   ├── services/
+│   │   │   ├── excel_service.py     # Parseo + Exportación Excel (3 hojas, colores, Aptos Narrow)
+│   │   │   └── retry_service.py     # Lógica de reintentos
+│   │   ├── workers/
+│   │   │   ├── loops.py             # Worker loops (sunedu_worker_loop, minedu_worker_loop)
+│   │   │   └── orchestrator.py      # Gestor de threads (start/stop/pause)
+│   │   └── api/
+│   │       └── endpoints.py         # FastAPI routes (/api/...)
+│   └── data/
+│       └── registros.db             # SQLite database
+│
+└── FRONTENDWORKER/                  # Frontend React + Vite
+    ├── src/
+    ├── vite.config.js
+    └── package.json
 ```
 
 ---
@@ -89,7 +95,7 @@ El frontend (`vite.config.js`) proxea `/api` → `http://127.0.0.1:8000/api`.
 
 ### 1. Backend
 ```bash
-cd APP/webapp/BACKEND_REFACTORED
+cd webapp/BACKEND_REFACTORED
 pip install -r requirements.txt
 python main.py
 ```
@@ -97,7 +103,7 @@ python main.py
 
 ### 2. Frontend
 ```bash
-cd APP/webapp/FRONTENDWORKER
+cd webapp/FRONTENDWORKER
 npm install
 npm run dev
 ```
