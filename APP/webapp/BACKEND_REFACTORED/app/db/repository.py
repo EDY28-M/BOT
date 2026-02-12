@@ -10,7 +10,7 @@ class DniRepository:
     def __init__(self):
         self.session_factory = SessionFactory
 
-    def crear_lote(self, nombre_archivo: str, dnis: List[str]) -> Lote:
+    def crear_lote(self, session_id: str, nombre_archivo: str, dnis: List[str]) -> Lote:
         """Crea un lote con sus registros. Deduplica DNIs dentro del lote."""
         session = self.session_factory()
         try:
@@ -23,12 +23,21 @@ class DniRepository:
                     vistos.add(d_clean)
                     dnis_unicos.append(d_clean)
 
-            lote = Lote(nombre_archivo=nombre_archivo, total_dnis=len(dnis_unicos))
+            lote = Lote(
+                session_id=session_id,
+                nombre_archivo=nombre_archivo,
+                total_dnis=len(dnis_unicos),
+            )
             session.add(lote)
             session.flush()  # Para obtener lote.id
 
             for dni in dnis_unicos:
-                reg = Registro(lote_id=lote.id, dni=dni, estado=Estado.PENDIENTE)
+                reg = Registro(
+                    lote_id=lote.id,
+                    session_id=session_id,
+                    dni=dni,
+                    estado=Estado.PENDIENTE,
+                )
                 session.add(reg)
 
             session.commit()
@@ -40,15 +49,16 @@ class DniRepository:
         finally:
             session.close()
 
-    def tomar_siguiente(self, estado_origen: str, estado_procesando: str) -> Optional[Dict[str, Any]]:
+    def tomar_siguiente(self, session_id: str, estado_origen: str, estado_procesando: str) -> Optional[Dict[str, Any]]:
         """
-        Toma atómicamente el siguiente registro en `estado_origen`,
+        Toma atómicamente el siguiente registro de ESTA SESIÓN en `estado_origen`,
         lo marca como `estado_procesando` y lo retorna como dict.
         """
         session = self.session_factory()
         try:
             reg = (
                 session.query(Registro)
+                .filter(Registro.session_id == session_id)
                 .filter(Registro.estado == estado_origen)
                 .order_by(Registro.id.asc())
                 .with_for_update()
@@ -105,12 +115,13 @@ class DniRepository:
         finally:
             session.close()
 
-    def obtener_conteos(self) -> Dict[str, int]:
-        """Retorna conteo de registros por estado."""
+    def obtener_conteos(self, session_id: str) -> Dict[str, int]:
+        """Retorna conteo de registros por estado para esta sesión."""
         session = self.session_factory()
         try:
             rows = (
                 session.query(Registro.estado, func.count(Registro.id))
+                .filter(Registro.session_id == session_id)
                 .group_by(Registro.estado)
                 .all()
             )
@@ -118,15 +129,16 @@ class DniRepository:
         finally:
             session.close()
 
-    def obtener_total(self) -> int:
+    def obtener_total(self, session_id: str) -> int:
         session = self.session_factory()
         try:
-            return session.query(Registro).count()
+            return session.query(Registro).filter(Registro.session_id == session_id).count()
         finally:
             session.close()
 
     def obtener_registros(
         self,
+        session_id: str,
         estado: Optional[str] = None,
         lote_id: Optional[int] = None,
         limit: int = 500,
@@ -134,7 +146,7 @@ class DniRepository:
     ) -> List[Dict[str, Any]]:
         session = self.session_factory()
         try:
-            q = session.query(Registro)
+            q = session.query(Registro).filter(Registro.session_id == session_id)
             if estado:
                 q = q.filter(Registro.estado == estado)
             if lote_id:
@@ -177,10 +189,15 @@ class DniRepository:
         finally:
             session.close()
 
-    def obtener_lotes(self) -> List[Dict[str, Any]]:
+    def obtener_lotes(self, session_id: str) -> List[Dict[str, Any]]:
         session = self.session_factory()
         try:
-            lotes = session.query(Lote).order_by(Lote.id.desc()).all()
+            lotes = (
+                session.query(Lote)
+                .filter(Lote.session_id == session_id)
+                .order_by(Lote.id.desc())
+                .all()
+            )
             return [
                 {
                     "id": l.id,
@@ -193,13 +210,14 @@ class DniRepository:
         finally:
             session.close()
 
-    def reintentar_no_encontrados(self) -> Dict[str, Any]:
-        """Re-encola NOT_FOUND y ERROR_*."""
+    def reintentar_no_encontrados(self, session_id: str) -> Dict[str, Any]:
+        """Re-encola NOT_FOUND y ERROR_* de esta sesión."""
         session = self.session_factory()
         try:
             estados_retry = [Estado.NOT_FOUND, Estado.ERROR_SUNEDU, Estado.ERROR_MINEDU]
             registros = (
                 session.query(Registro)
+                .filter(Registro.session_id == session_id)
                 .filter(Registro.estado.in_(estados_retry))
                 .all()
             )
@@ -220,36 +238,55 @@ class DniRepository:
         finally:
             session.close()
 
-    def hay_trabajo_pendiente(self) -> bool:
+    def hay_trabajo_pendiente(self, session_id: str) -> bool:
         session = self.session_factory()
         try:
             estados_activos = [
                 Estado.PENDIENTE, Estado.PROCESANDO_SUNEDU,
                 Estado.CHECK_MINEDU, Estado.PROCESANDO_MINEDU,
             ]
-            count = session.query(Registro).filter(Registro.estado.in_(estados_activos)).count()
+            count = (
+                session.query(Registro)
+                .filter(Registro.session_id == session_id)
+                .filter(Registro.estado.in_(estados_activos))
+                .count()
+            )
             return count > 0
         finally:
             session.close()
 
-    def contar_retryables(self) -> int:
+    def contar_retryables(self, session_id: str) -> int:
         session = self.session_factory()
         try:
             estados_retry = [Estado.NOT_FOUND, Estado.ERROR_SUNEDU, Estado.ERROR_MINEDU]
-            return session.query(Registro).filter(Registro.estado.in_(estados_retry)).count()
+            return (
+                session.query(Registro)
+                .filter(Registro.session_id == session_id)
+                .filter(Registro.estado.in_(estados_retry))
+                .count()
+            )
         finally:
             session.close()
 
-    def recuperar_procesando(self) -> Dict[str, int]:
-        """Recupera registros atrapados en estados PROCESANDO_*."""
+    def recuperar_procesando(self, session_id: Optional[str] = None) -> Dict[str, int]:
+        """Recupera registros atrapados en estados PROCESANDO_*.
+        Si session_id es None, recupera de TODAS las sesiones (para startup).
+        """
         session = self.session_factory()
         try:
-            sunedu = session.query(Registro).filter(Registro.estado == Estado.PROCESANDO_SUNEDU).all()
+            q_sunedu = session.query(Registro).filter(Registro.estado == Estado.PROCESANDO_SUNEDU)
+            q_minedu = session.query(Registro).filter(Registro.estado == Estado.PROCESANDO_MINEDU)
+
+            if session_id:
+                q_sunedu = q_sunedu.filter(Registro.session_id == session_id)
+                q_minedu = q_minedu.filter(Registro.session_id == session_id)
+
+            sunedu = q_sunedu.all()
             for r in sunedu:
                 r.estado = Estado.PENDIENTE
                 r.updated_at = datetime.utcnow()
 
-            minedu = session.query(Registro).filter(Registro.estado == Estado.PROCESANDO_MINEDU).all()
+            minedu = q_minedu.all()
             for r in minedu:
                 r.estado = Estado.CHECK_MINEDU
                 r.updated_at = datetime.utcnow()
@@ -262,16 +299,50 @@ class DniRepository:
         finally:
             session.close()
 
-    def limpiar_todo(self) -> Dict[str, int]:
+    def limpiar_todo(self, session_id: str) -> Dict[str, int]:
+        """Limpia solo los datos de esta sesión."""
         session = self.session_factory()
         try:
-            registros_eliminados = session.query(Registro).delete()
-            lotes_eliminados = session.query(Lote).delete()
+            registros_eliminados = (
+                session.query(Registro)
+                .filter(Registro.session_id == session_id)
+                .delete()
+            )
+            lotes_eliminados = (
+                session.query(Lote)
+                .filter(Lote.session_id == session_id)
+                .delete()
+            )
             session.commit()
             return {
                 "registros_eliminados": registros_eliminados,
                 "lotes_eliminados": lotes_eliminados,
             }
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def migrate_legacy_records(self):
+        """Asigna session_id='legacy' a registros existentes sin session_id."""
+        session = self.session_factory()
+        try:
+            # Registros sin session_id (o vacío)
+            regs = session.query(Registro).filter(
+                (Registro.session_id == None) | (Registro.session_id == "")
+            ).all()
+            for r in regs:
+                r.session_id = "legacy"
+
+            lotes = session.query(Lote).filter(
+                (Lote.session_id == None) | (Lote.session_id == "")
+            ).all()
+            for l in lotes:
+                l.session_id = "legacy"
+
+            session.commit()
+            return {"registros_migrados": len(regs), "lotes_migrados": len(lotes)}
         except Exception:
             session.rollback()
             raise

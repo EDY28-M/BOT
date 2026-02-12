@@ -5,22 +5,22 @@ import TabBar from './TabBar'
 import { downloadResultados } from '../../api/client'
 
 const COLUMNS = {
-  all: ['ID', 'DNI', 'Full Name', 'Institution', 'Source', 'Status'],
-  sunedu: ['ID', 'DNI', 'Full Name', 'Degree', 'Institution', 'Diploma Date'],
-  minedu: ['ID', 'DNI', 'Full Name', 'Title', 'Institution', 'Date'],
-  notfound: ['ID', 'DNI', 'Reason', 'Retries', 'Updated'],
-  errors: ['ID', 'DNI', 'Worker', 'Error Detail', 'When'],
+  all: ['ID', 'DNI', 'Nombre Completo', 'Institución', 'Fuente', 'Estado'],
+  sunedu: ['ID', 'DNI', 'Nombre Completo', 'Grado', 'Institución', 'Fecha Diploma'],
+  minedu: ['ID', 'DNI', 'Nombre Completo', 'Título', 'Institución', 'Fecha'],
+  notfound: ['ID', 'DNI', 'Motivo', 'Reintentos', 'Actualizado'],
+  errors: ['ID', 'DNI', 'Worker', 'Detalle Error', 'Hora'],
 }
 
 function RowAll({ r }) {
   const name = r.sunedu_nombres || r.minedu_nombres || '—'
   const inst = r.sunedu_institucion || r.minedu_institucion || '—'
   return (
-    <tr className="hover:bg-primary/5 transition-colors">
-      <td className="px-4 py-3 font-mono text-xs text-slate-500">#{String(r.id).padStart(5, '0')}</td>
-      <td className="px-4 py-3 text-slate-300">{r.dni}</td>
-      <td className="px-4 py-3 text-white font-medium">{name}</td>
-      <td className="px-4 py-3 text-slate-400">{inst}</td>
+    <tr className="hover:bg-blue-50/50 transition-colors">
+      <td className="px-4 py-3 font-mono text-xs text-gray-400">#{String(r.id).padStart(5, '0')}</td>
+      <td className="px-4 py-3 text-gray-700 font-medium">{r.dni}</td>
+      <td className="px-4 py-3 text-gray-900 font-medium">{name}</td>
+      <td className="px-4 py-3 text-gray-500">{inst}</td>
       <td className="px-4 py-3"><SourceBadge estado={r.estado} /></td>
       <td className="px-4 py-3"><StatusIcon estado={r.estado} /></td>
     </tr>
@@ -29,55 +29,54 @@ function RowAll({ r }) {
 
 function RowSunedu({ r }) {
   return (
-    <tr className="hover:bg-primary/5 transition-colors">
-      <td className="px-4 py-3 font-mono text-xs text-slate-500">#{String(r.id).padStart(5, '0')}</td>
-      <td className="px-4 py-3 text-slate-300">{r.dni}</td>
-      <td className="px-4 py-3 text-white font-medium">{r.sunedu_nombres || '—'}</td>
-      <td className="px-4 py-3 text-slate-400">{r.sunedu_grado || '—'}</td>
-      <td className="px-4 py-3 text-slate-400">{r.sunedu_institucion || '—'}</td>
-      <td className="px-4 py-3 text-slate-400 font-mono text-xs">{r.sunedu_fecha_diploma || '—'}</td>
+    <tr className="hover:bg-blue-50/50 transition-colors">
+      <td className="px-4 py-3 font-mono text-xs text-gray-400">#{String(r.id).padStart(5, '0')}</td>
+      <td className="px-4 py-3 text-gray-700 font-medium">{r.dni}</td>
+      <td className="px-4 py-3 text-gray-900 font-medium">{r.sunedu_nombres || '—'}</td>
+      <td className="px-4 py-3 text-gray-500">{r.sunedu_grado || '—'}</td>
+      <td className="px-4 py-3 text-gray-500">{r.sunedu_institucion || '—'}</td>
+      <td className="px-4 py-3 text-gray-500 font-mono text-xs">{r.sunedu_fecha_diploma || '—'}</td>
     </tr>
   )
 }
 
 function RowMinedu({ r }) {
   return (
-    <tr className="hover:bg-primary/5 transition-colors">
-      <td className="px-4 py-3 font-mono text-xs text-slate-500">#{String(r.id).padStart(5, '0')}</td>
-      <td className="px-4 py-3 text-slate-300">{r.dni}</td>
-      <td className="px-4 py-3 text-white font-medium">{r.minedu_nombres || '—'}</td>
-      <td className="px-4 py-3 text-slate-400">{r.minedu_titulo || '—'}</td>
-      <td className="px-4 py-3 text-slate-400">{r.minedu_institucion || '—'}</td>
-      <td className="px-4 py-3 text-slate-400 font-mono text-xs">{r.minedu_fecha || '—'}</td>
+    <tr className="hover:bg-blue-50/50 transition-colors">
+      <td className="px-4 py-3 font-mono text-xs text-gray-400">#{String(r.id).padStart(5, '0')}</td>
+      <td className="px-4 py-3 text-gray-700 font-medium">{r.dni}</td>
+      <td className="px-4 py-3 text-gray-900 font-medium">{r.minedu_nombres || '—'}</td>
+      <td className="px-4 py-3 text-gray-500">{r.minedu_titulo || '—'}</td>
+      <td className="px-4 py-3 text-gray-500">{r.minedu_institucion || '—'}</td>
+      <td className="px-4 py-3 text-gray-500 font-mono text-xs">{r.minedu_fecha || '—'}</td>
     </tr>
   )
 }
 
 function RowNotFound({ r }) {
   return (
-    <tr className="hover:bg-primary/5 transition-colors">
-      <td className="px-4 py-3 font-mono text-xs text-slate-500">#{String(r.id).padStart(5, '0')}</td>
-      <td className="px-4 py-3 text-slate-300">{r.dni}</td>
-      <td className="px-4 py-3 text-neon-red">{r.error_msg || 'No records in both databases'}</td>
+    <tr className="hover:bg-blue-50/50 transition-colors">
+      <td className="px-4 py-3 font-mono text-xs text-gray-400">#{String(r.id).padStart(5, '0')}</td>
+      <td className="px-4 py-3 text-gray-700 font-medium">{r.dni}</td>
+      <td className="px-4 py-3 text-red-500">{r.error_msg || 'Sin registros en ambas bases de datos'}</td>
       <td className="px-4 py-3 text-center">
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">
           {r.retry_count || 0}
         </span>
       </td>
-      <td className="px-4 py-3 text-slate-500 font-mono text-xs">{r.updated_at?.slice(11, 19) || '—'}</td>
+      <td className="px-4 py-3 text-gray-400 font-mono text-xs">{r.updated_at?.slice(11, 19) || '—'}</td>
     </tr>
   )
 }
 
 function RowError({ r }) {
-  const worker = r.estado?.includes('SUNEDU') ? 'SUNEDU' : 'MINEDU'
   return (
-    <tr className="hover:bg-primary/5 transition-colors">
-      <td className="px-4 py-3 font-mono text-xs text-slate-500">#{String(r.id).padStart(5, '0')}</td>
-      <td className="px-4 py-3 text-slate-300">{r.dni}</td>
+    <tr className="hover:bg-blue-50/50 transition-colors">
+      <td className="px-4 py-3 font-mono text-xs text-gray-400">#{String(r.id).padStart(5, '0')}</td>
+      <td className="px-4 py-3 text-gray-700 font-medium">{r.dni}</td>
       <td className="px-4 py-3"><SourceBadge estado={r.estado} /></td>
-      <td className="px-4 py-3 text-neon-red text-xs">{r.error_msg || '—'}</td>
-      <td className="px-4 py-3 text-slate-500 font-mono text-xs">{r.updated_at?.slice(11, 19) || '—'}</td>
+      <td className="px-4 py-3 text-red-500 text-xs">{r.error_msg || '—'}</td>
+      <td className="px-4 py-3 text-gray-400 font-mono text-xs">{r.updated_at?.slice(11, 19) || '—'}</td>
     </tr>
   )
 }
@@ -99,20 +98,20 @@ function DataTable() {
   const handleDownload = useCallback(async () => {
     try {
       await downloadResultados()
-      showToast('Download started', 'success')
+      showToast('Descarga iniciada', 'success')
     } catch (e) {
       showToast(e.message, 'error')
     }
   }, [showToast])
 
   return (
-    <div className="lg:w-2/3 glass-panel rounded-xl border border-primary/20 flex flex-col overflow-hidden">
+    <div className="lg:w-2/3 card-panel rounded-xl flex flex-col overflow-hidden">
       <TabBar />
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <table className="w-full text-left text-sm whitespace-nowrap">
-          <thead className="bg-primary/10 text-slate-300 font-medium sticky top-0 backdrop-blur-md z-10">
+          <thead className="bg-gray-50 text-gray-500 font-medium sticky top-0 z-10 border-b border-gray-200">
             <tr>
               {cols.map(h => (
                 <th key={h} className={`px-4 py-3 ${h === 'ID' ? 'font-mono text-xs' : ''}`}>
@@ -121,12 +120,12 @@ function DataTable() {
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800">
+          <tbody className="divide-y divide-gray-100">
             {records.length === 0 ? (
               <tr>
                 <td colSpan={cols.length} className="px-4 py-16 text-center">
-                  <span className="material-icons-round text-5xl text-slate-700 block mb-3">inbox</span>
-                  <p className="text-slate-500 text-sm">No records yet. Upload a file and start the pipeline.</p>
+                  <span className="material-icons-round text-5xl text-gray-200 block mb-3">inbox</span>
+                  <p className="text-gray-400 text-sm">Sin registros. Sube un archivo e inicia la consulta.</p>
                 </td>
               </tr>
             ) : (
@@ -137,14 +136,14 @@ function DataTable() {
       </div>
 
       {/* Footer */}
-      <div className="p-3 border-t border-slate-800 bg-primary/5 flex justify-between items-center text-xs text-slate-400 shrink-0">
-        <span>Showing {records.length} of {total} records</span>
+      <div className="p-3 border-t border-gray-200 bg-gray-50 flex justify-between items-center text-xs text-gray-500 shrink-0">
+        <span>Mostrando {records.length} de {total} registros</span>
         <button
           onClick={handleDownload}
-          className="flex items-center gap-1 text-primary hover:text-white transition-colors"
+          className="flex items-center gap-1 text-primary hover:text-primary-dark font-medium transition-colors"
         >
           <span className="material-icons-round text-sm">download</span>
-          Export XLSX
+          Exportar XLSX
         </button>
       </div>
     </div>

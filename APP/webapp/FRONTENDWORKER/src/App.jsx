@@ -22,7 +22,6 @@ const TAB_FILTERS = {
 
 function DashboardContent() {
   const { state, dispatch, addLog } = useDashboard()
-  // Track previous values to only log when something changes
   const prev = useRef({
     sRun: false, mRun: false,
     total: 0,
@@ -52,11 +51,7 @@ function DashboardContent() {
       })
 
       dispatch({ type: 'SET_WORKERS', payload: workers })
-
-      // Build terminal logs only when values change
       buildLogs(status, workers)
-
-      // Fetch records for current tab
       await fetchRecordsForTab(state.currentTab)
     } catch {
       // silently ignore poll failures
@@ -70,40 +65,35 @@ function DashboardContent() {
     const sRun = !!workers.sunedu?.running
     const mRun = !!workers.minedu?.running
 
-    // Worker connection — only log on state change
-    if (sRun && !p.sRun) addLog('[INFO] Worker SUNEDU connected.', 'text-neon-blue')
-    if (!sRun && p.sRun) addLog('[INFO] Worker SUNEDU stopped.', 'text-yellow-500')
-    if (mRun && !p.mRun) addLog('[INFO] Worker MINEDU connected.', 'text-neon-blue')
-    if (!mRun && p.mRun) addLog('[INFO] Worker MINEDU stopped.', 'text-yellow-500')
+    if (sRun && !p.sRun) addLog('[INFO] Worker SUNEDU conectado.', 'text-blue-600')
+    if (!sRun && p.sRun) addLog('[INFO] Worker SUNEDU detenido.', 'text-amber-600')
+    if (mRun && !p.mRun) addLog('[INFO] Worker MINEDU conectado.', 'text-blue-600')
+    if (!mRun && p.mRun) addLog('[INFO] Worker MINEDU detenido.', 'text-amber-600')
 
-    // Total loaded — only on change
     const total = status.total || 0
     if (total > 0 && total !== p.total)
-      addLog(`Loaded ${fmt(total)} records.`, 'text-slate-400')
+      addLog(`Cargados ${fmt(total)} registros.`, 'text-gray-500')
 
-    // Found counts — only log increments
     const foundSunedu = sp.encontrados || 0
     if (foundSunedu > p.foundSunedu)
-      addLog(`[FOUND] ${fmt(foundSunedu)} records — SUNEDU DB.`, 'text-neon-green')
+      addLog(`[ENCONTRADO] ${fmt(foundSunedu)} registros — SUNEDU.`, 'text-green-600')
 
     const derivMinedu = sp.derivados_minedu || 0
     if (derivMinedu > p.derivMinedu)
-      addLog(`[DERIV] ${fmt(derivMinedu)} DNIs forwarded to MINEDU.`, 'text-yellow-500')
+      addLog(`[DERIVADO] ${fmt(derivMinedu)} DNIs derivados a MINEDU.`, 'text-amber-600')
 
     const foundMinedu = mp.encontrados || 0
     if (foundMinedu > p.foundMinedu)
-      addLog(`[FOUND] ${fmt(foundMinedu)} records — MINEDU DB.`, 'text-neon-green')
+      addLog(`[ENCONTRADO] ${fmt(foundMinedu)} registros — MINEDU.`, 'text-green-600')
 
     const notFound = mp.no_encontrados || 0
     if (notFound > p.notFound)
-      addLog(`[NOT_FOUND] ${fmt(notFound)} DNIs — No records.`, 'text-neon-red')
+      addLog(`[NO ENCONTRADO] ${fmt(notFound)} DNIs — Sin registros.`, 'text-red-500')
 
-    // Pipeline finished — log once when it goes from active to idle
     const enProceso = status.en_proceso || 0
     if (p.enProceso > 0 && enProceso === 0 && total > 0 && status.terminados === total)
-      addLog('[DONE] Pipeline finished.', 'text-neon-green')
+      addLog('[COMPLETADO] Pipeline finalizado.', 'text-green-600')
 
-    // Update previous values
     prev.current = { sRun, mRun, total, foundSunedu, derivMinedu, foundMinedu, notFound, enProceso }
   }, [addLog])
 
@@ -127,16 +117,10 @@ function DashboardContent() {
   usePolling(poll, 2000)
 
   return (
-    <div className="flex w-full h-screen">
+    <div className="flex w-full h-screen bg-gray-50">
       <Sidebar />
 
       <main className="flex-1 flex flex-col relative overflow-hidden">
-        {/* Background gradients */}
-        <div className="absolute inset-0 pointer-events-none z-0">
-          <div className="absolute top-[-10%] right-[-5%] w-[500px] h-[500px] bg-primary/5 rounded-full blur-[100px]" />
-          <div className="absolute bottom-[-10%] left-[10%] w-[400px] h-[400px] bg-neon-blue/3 rounded-full blur-[80px]" />
-        </div>
-
         <div className="p-6 md:p-8 flex flex-col h-full z-10 gap-5 overflow-y-auto">
           <MetricsGrid />
           <Pipeline />

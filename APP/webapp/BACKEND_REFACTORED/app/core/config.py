@@ -53,3 +53,7 @@ WINDOW_SIZE = (1366, 768)
 # --- API ---
 API_HOST = "127.0.0.1"
 API_PORT = 8000
+
+# --- Sesiones ---
+MAX_GLOBAL_WORKERS = 10          # Máx Chrome instances en total (todas las sesiones)
+SESSION_IDLE_TIMEOUT = 1800      # Segundos antes de limpiar sesión inactiva (30 min)

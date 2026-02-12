@@ -1,13 +1,32 @@
 /**
  * API Client — centralised HTTP calls to FastAPI backend.
+ * Each browser tab gets a unique session UUID.
  * In dev, Vite proxy forwards /api → http://127.0.0.1:8000
- * In prod, same origin (served by FastAPI).
  */
 
 const BASE = ''  // same origin
 
+// ─── Session Management ───
+
+function getSessionId() {
+  let sid = localStorage.getItem('sicgtd_session_id')
+  if (!sid) {
+    sid = crypto.randomUUID()
+    localStorage.setItem('sicgtd_session_id', sid)
+  }
+  return sid
+}
+
+const SESSION_ID = getSessionId()
+
+// ─── HTTP Helpers ───
+
 async function request(url, options = {}) {
-  const res = await fetch(`${BASE}${url}`, options)
+  const headers = {
+    'X-Session-ID': SESSION_ID,
+    ...(options.headers || {}),
+  }
+  const res = await fetch(`${BASE}${url}`, { ...options, headers })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.detail || `HTTP ${res.status}`)
@@ -46,6 +65,7 @@ export async function fetchLotes() {
 export async function uploadFile(file) {
   const fd = new FormData()
   fd.append('file', file)
+  // FormData sets its own Content-Type, don't override
   return json('/api/upload', { method: 'POST', body: fd })
 }
 
@@ -65,15 +85,23 @@ export async function retryNotFound() {
   return json('/api/retry', { method: 'POST' })
 }
 
+export async function recoverStuck() {
+  return json('/api/recover', { method: 'POST' })
+}
+
 export async function downloadResultados() {
   const res = await request('/api/resultados')
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'resultados_validacion.xlsx'
+  a.download = 'resultados_sicgtd.xlsx'
   document.body.appendChild(a)
   a.click()
   a.remove()
   URL.revokeObjectURL(url)
+}
+
+export function getActiveSessionId() {
+  return SESSION_ID
 }

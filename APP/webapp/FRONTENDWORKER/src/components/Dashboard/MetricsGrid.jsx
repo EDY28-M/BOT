@@ -13,50 +13,50 @@ function MetricsGrid() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       <MetricCard
-        label="Total Processed"
+        label="Total Procesados"
         value={fmt(total)}
         icon="analytics"
         color="primary"
         sub={
           <>
             <span className="material-icons-round text-[10px]">arrow_upward</span>
-            {total > 0 ? `${progreso_pct.toFixed(1)}% done` : 'No data'}
+            {total > 0 ? `${progreso_pct.toFixed(1)}% completado` : 'Sin datos'}
           </>
         }
       />
       <MetricCard
-        label="Found SUNEDU"
+        label="Encontrados SUNEDU"
         value={fmt(fs)}
         icon="check_circle"
         color="green"
         sub={
           <>
             <span className="material-icons-round text-[10px]">verified</span>
-            {total > 0 ? `${pct(fs, total)}% Valid` : '—'}
+            {total > 0 ? `${pct(fs, total)}% válidos` : '—'}
           </>
         }
       />
       <MetricCard
-        label="Found MINEDU"
+        label="Encontrados MINEDU"
         value={fmt(fm)}
         icon="fact_check"
         color="blue"
         sub={
           <>
             <span className="material-icons-round text-[10px]">verified</span>
-            {total > 0 ? `${pct(fm, total)}% Valid` : '—'}
+            {total > 0 ? `${pct(fm, total)}% válidos` : '—'}
           </>
         }
       />
       <MetricCard
-        label="Not Found"
+        label="No Encontrados"
         value={fmt(nf)}
         icon="error_outline"
         color="red"
         sub={
           <>
             <span className="material-icons-round text-[10px]">warning</span>
-            {total > 0 ? `${pct(nf, total)}% Invalid` : '—'}
+            {total > 0 ? `${pct(nf, total)}% sin registro` : '—'}
           </>
         }
       />

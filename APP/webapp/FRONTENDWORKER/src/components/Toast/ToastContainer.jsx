@@ -2,9 +2,9 @@ import React, { memo } from 'react'
 import { useDashboard } from '../../context/DashboardContext'
 
 const TYPE_STYLES = {
-  success: 'bg-neon-green/15 border-neon-green/30 text-neon-green',
-  error: 'bg-neon-red/15 border-neon-red/30 text-neon-red',
-  warn: 'bg-yellow-500/15 border-yellow-500/30 text-yellow-500',
+  success: 'bg-green-50 border-green-200 text-green-700',
+  error: 'bg-red-50 border-red-200 text-red-700',
+  warn: 'bg-amber-50 border-amber-200 text-amber-700',
 }
 
 function ToastContainer() {
@@ -15,7 +15,7 @@ function ToastContainer() {
       {state.toasts.map(toast => (
         <div
           key={toast.id}
-          className={`px-4 py-3 rounded-lg border text-sm font-semibold font-display
+          className={`px-4 py-3 rounded-lg border text-sm font-semibold font-display shadow-card
             transition-all duration-300 transform pointer-events-auto
             ${TYPE_STYLES[toast.type] || TYPE_STYLES.success}
             animate-[slideIn_0.3s_ease-out]`}

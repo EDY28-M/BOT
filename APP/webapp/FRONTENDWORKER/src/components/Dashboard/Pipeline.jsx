@@ -1,20 +1,20 @@
 import React, { memo, useMemo } from 'react'
 import { useDashboard } from '../../context/DashboardContext'
 
-function PipelineBar({ label, color, processed, total, shadow }) {
+function PipelineBar({ label, color, bgColor, processed, total }) {
   const width = total > 0 ? Math.min((processed / total) * 100, 100) : 0
 
   return (
     <div>
-      <div className="flex justify-between text-xs font-mono mb-1">
+      <div className="flex justify-between text-xs font-medium mb-1">
         <span className={`${color} font-bold`}>{label}</span>
-        <span className="text-slate-300">
-          {processed}/{total} processed
+        <span className="text-gray-500">
+          {processed}/{total} procesados
         </span>
       </div>
-      <div className="h-3 w-full bg-slate-800 rounded-full overflow-hidden relative">
+      <div className="h-3 w-full bg-gray-100 rounded-full overflow-hidden relative">
         <div
-          className={`h-full ${color.replace('text-', 'bg-')} progress-striped ${shadow} rounded-full transition-all duration-500`}
+          className={`h-full ${bgColor} progress-striped rounded-full transition-all duration-500`}
           style={{ width: `${width}%` }}
         />
       </div>
@@ -47,31 +47,31 @@ function Pipeline() {
   )
 
   return (
-    <div className="glass-panel p-6 rounded-xl border border-primary/20">
+    <div className="card-panel p-6 rounded-xl">
       <div className="flex justify-between items-end mb-4">
-        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
           <span className="material-icons-round text-primary">waterfall_chart</span>
-          Waterfall Pipeline
+          Pipeline de Procesamiento
         </h3>
-        <span className="font-mono text-xs text-slate-400">
+        <span className="font-mono text-xs text-gray-400">
           TOTAL: {total}
         </span>
       </div>
 
       <div className="space-y-6">
         <PipelineBar
-          label="THREAD_A::SUNEDU"
-          color="text-neon-green"
+          label="SUNEDU"
+          color="text-green-600"
+          bgColor="bg-green-500"
           processed={suneduDone}
           total={suneduTotal}
-          shadow="shadow-neon-green"
         />
         <PipelineBar
-          label="THREAD_B::MINEDU"
-          color="text-neon-blue"
+          label="MINEDU"
+          color="text-blue-600"
+          bgColor="bg-blue-500"
           processed={mineduDone}
           total={mineduTotal}
-          shadow="shadow-neon-blue"
         />
       </div>
     </div>

@@ -3,34 +3,34 @@ import React, { memo } from 'react'
 const STYLES = {
   sunedu: {
     icon: 'school',
-    label: 'SUNEDU Node',
+    label: 'SUNEDU',
     active: {
-      card: 'p-3 rounded-lg border border-neon-green/30 bg-neon-green/5 flex items-center justify-between transition-all',
-      icon: 'material-icons-round text-neon-green',
-      status: 'text-xs text-neon-green',
-      dot: 'h-3 w-3 rounded-full bg-neon-green animate-pulse-green',
+      card: 'p-3 rounded-lg border border-green-200 bg-green-50 flex items-center justify-between transition-all',
+      icon: 'material-icons-round text-green-600',
+      status: 'text-xs text-green-600 font-medium',
+      dot: 'h-3 w-3 rounded-full bg-green-500 animate-pulse',
     },
     inactive: {
-      card: 'p-3 rounded-lg border border-slate-700 bg-slate-800/30 flex items-center justify-between transition-all',
-      icon: 'material-icons-round text-slate-500',
-      status: 'text-xs text-slate-500',
-      dot: 'h-3 w-3 rounded-full bg-slate-600',
+      card: 'p-3 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between transition-all',
+      icon: 'material-icons-round text-gray-400',
+      status: 'text-xs text-gray-400',
+      dot: 'h-3 w-3 rounded-full bg-gray-300',
     },
   },
   minedu: {
     icon: 'account_balance',
-    label: 'MINEDU Node',
+    label: 'MINEDU',
     active: {
-      card: 'p-3 rounded-lg border border-neon-blue/30 bg-neon-blue/5 flex items-center justify-between transition-all',
-      icon: 'material-icons-round text-neon-blue',
-      status: 'text-xs text-neon-blue',
-      dot: 'h-3 w-3 rounded-full bg-neon-blue animate-pulse-blue',
+      card: 'p-3 rounded-lg border border-blue-200 bg-blue-50 flex items-center justify-between transition-all',
+      icon: 'material-icons-round text-blue-600',
+      status: 'text-xs text-blue-600 font-medium',
+      dot: 'h-3 w-3 rounded-full bg-blue-500 animate-pulse',
     },
     inactive: {
-      card: 'p-3 rounded-lg border border-slate-700 bg-slate-800/30 flex items-center justify-between transition-all',
-      icon: 'material-icons-round text-slate-500',
-      status: 'text-xs text-slate-500',
-      dot: 'h-3 w-3 rounded-full bg-slate-600',
+      card: 'p-3 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between transition-all',
+      icon: 'material-icons-round text-gray-400',
+      status: 'text-xs text-gray-400',
+      dot: 'h-3 w-3 rounded-full bg-gray-300',
     },
   },
 }
@@ -44,8 +44,8 @@ function WorkerCard({ name, running }) {
       <div className="flex items-center gap-3">
         <span className={s.icon}>{cfg.icon}</span>
         <div>
-          <p className="text-sm font-bold text-white">{cfg.label}</p>
-          <p className={s.status}>{running ? 'Scraping Active' : 'Stopped'}</p>
+          <p className="text-sm font-bold text-gray-800">{cfg.label}</p>
+          <p className={s.status}>{running ? 'Procesando…' : 'Detenido'}</p>
         </div>
       </div>
       <div className={s.dot} />

@@ -23,6 +23,8 @@ const initialState = {
   currentTab: 'all',
   selectedFile: null,
   loading: false,
+  // Invalid DNIs from last upload
+  invalidDnis: [],
   // Toasts
   toasts: [],
 }
@@ -41,6 +43,8 @@ function reducer(state, action) {
       return { ...state, selectedFile: action.payload }
     case 'SET_LOADING':
       return { ...state, loading: action.payload }
+    case 'SET_INVALID_DNIS':
+      return { ...state, invalidDnis: action.payload }
     case 'ADD_LOG': {
       const logs = [...state.logs, action.payload]
       return { ...state, logs: logs.length > MAX_LOGS ? logs.slice(-MAX_LOGS) : logs }

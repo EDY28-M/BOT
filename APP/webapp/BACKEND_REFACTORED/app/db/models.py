@@ -11,6 +11,7 @@ class Lote(Base):
     __tablename__ = "lotes"
 
     id             = Column(Integer, primary_key=True, autoincrement=True)
+    session_id     = Column(String(36), nullable=False, index=True)
     nombre_archivo = Column(String(255), nullable=False)
     total_dnis     = Column(Integer, default=0)
     created_at     = Column(DateTime, default=datetime.utcnow)
@@ -18,7 +19,7 @@ class Lote(Base):
     registros = relationship("Registro", back_populates="lote", lazy="dynamic")
 
     def __repr__(self):
-        return f"<Lote {self.id} '{self.nombre_archivo}'>"
+        return f"<Lote {self.id} '{self.nombre_archivo}' session={self.session_id}>"
 
 
 class Registro(Base):
@@ -27,6 +28,7 @@ class Registro(Base):
 
     id               = Column(Integer, primary_key=True, autoincrement=True)
     lote_id          = Column(Integer, ForeignKey("lotes.id"), nullable=False)
+    session_id       = Column(String(36), nullable=False, index=True)
     dni              = Column(String(15), nullable=False, index=True)
     estado           = Column(String(30), nullable=False, default="PENDIENTE", index=True)
     retry_count      = Column(Integer, default=0)    
@@ -52,8 +54,9 @@ class Registro(Base):
         return json.loads(self.payload_minedu) if self.payload_minedu else None
 
     def __repr__(self):
-        return f"<Registro DNI={self.dni} estado={self.estado}>"
+        return f"<Registro DNI={self.dni} estado={self.estado} session={self.session_id}>"
 
 
-# Índice compuesto para optimizar la búsqueda de pendientes
-Index("ix_registros_estado_id", Registro.estado, Registro.id)
+# Índice compuesto para queries por sesión + estado
+Index("ix_registros_session_estado_id", Registro.session_id, Registro.estado, Registro.id)
+Index("ix_lotes_session", Lote.session_id)

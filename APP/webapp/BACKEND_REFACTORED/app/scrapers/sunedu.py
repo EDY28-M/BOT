@@ -12,8 +12,6 @@ log = logging.getLogger("SUNEDU")
 
 # ═══════════════════════════════════════════════════════════════════════
 # MONITOREO PROFESIONAL — Script espía inyectado via CDP
-# Equivalente a Playwright: page.addInitScript() + page.exposeFunction()
-# Se ejecuta ANTES del JS de la web, intercepta TODO desde el inicio.
 # ═══════════════════════════════════════════════════════════════════════
 MONITOR_INIT_SCRIPT = """
 (function() {
@@ -27,28 +25,23 @@ MONITOR_INIT_SCRIPT = """
         window.__capturedEvents.push(data);
     }
 
-    // 1. JS Errors
     window.onerror = function(message, source, lineno, colno, error) {
         pushEvent({
             type: 'JS_ERROR',
             message: String(message),
             source: String(source || ''),
             line: lineno,
-            column: colno,
             stack: error ? String(error.stack || '').substring(0, 300) : ''
         });
     };
 
-    // 2. Unhandled Promise Rejections
     window.addEventListener('unhandledrejection', function(event) {
         pushEvent({
             type: 'PROMISE_ERROR',
-            message: event.reason ? String(event.reason.message || event.reason).substring(0, 300) : 'unknown',
-            stack: event.reason ? String(event.reason.stack || '').substring(0, 300) : ''
+            message: event.reason ? String(event.reason.message || event.reason).substring(0, 300) : 'unknown'
         });
     });
 
-    // 3. Console Interception
     ['log', 'warn', 'error', 'info', 'debug'].forEach(function(level) {
         var original = console[level];
         console[level] = function() {
@@ -61,7 +54,6 @@ MONITOR_INIT_SCRIPT = """
         };
     });
 
-    // 4. Fetch Interception
     var originalFetch = window.fetch;
     window.fetch = function() {
         var url = arguments[0];
@@ -69,26 +61,15 @@ MONITOR_INIT_SCRIPT = """
         var method = opts.method || 'GET';
         return originalFetch.apply(this, arguments).then(function(response) {
             if (!response.ok) {
-                pushEvent({
-                    type: 'HTTP_ERROR',
-                    url: String(url).substring(0, 200),
-                    status: response.status,
-                    method: method
-                });
+                pushEvent({ type: 'HTTP_ERROR', url: String(url).substring(0, 200), status: response.status, method: method });
             }
             return response;
         }).catch(function(err) {
-            pushEvent({
-                type: 'NETWORK_ERROR',
-                url: String(url).substring(0, 200),
-                method: method,
-                message: String(err.message).substring(0, 200)
-            });
+            pushEvent({ type: 'NETWORK_ERROR', url: String(url).substring(0, 200), method: method, message: String(err.message).substring(0, 200) });
             throw err;
         });
     };
 
-    // 5. XHR Interception
     var origOpen = XMLHttpRequest.prototype.open;
     var origSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function(method, url) {
@@ -116,6 +97,8 @@ class Motivo:
     NO_ENCONTRADO = "No se encontró en SUNEDU - derivado a MINEDU"
     CAPTCHA_FALLO = "Falló la verificación de seguridad/captcha en SUNEDU"
     VERIFICACION_NO_SUPERADA = "No se pasó la verificación de seguridad en SUNEDU"
+    VERIFICACION_FALLIDA = "Verificación fallida en SUNEDU - se refrescó la página"
+    NADA_APARECIO = "No apareció ningún resultado ni mensaje en SUNEDU"
     BOTON_NO_ENCONTRADO = "No se encontró el botón de búsqueda en SUNEDU"
     PAGINA_NO_CARGO = "La página de SUNEDU no cargó correctamente"
     ERROR_EXTRACCION = "Error al extraer datos de la tabla SUNEDU"
@@ -125,8 +108,10 @@ class Motivo:
 
 class SuneduScraper:
     """
-    Scraper SUNEDU con Botasaurus.
-    Lógica portada DIRECTAMENTE de sunedu_botasaurus.py + monitoreo profesional CDP.
+    Scraper SUNEDU — COPIA EXACTA del bot original (workers.py SuneduLogic)
+    + monitoreo CDP profesional.
+
+    Método _pasar_verificacion() portado directamente del bot que funciona.
     """
 
     URL = SUNEDU_URL
@@ -136,21 +121,13 @@ class SuneduScraper:
         self._cdp_configured = False
 
     # ═══════════════════════════════════════════════════════════════════
-    # MONITOREO PROFESIONAL — CDP Bridge
+    # MONITOREO CDP
     # ═══════════════════════════════════════════════════════════════════
 
     def _setup_cdp_monitoring(self, driver: Driver):
-        """
-        Configura monitoreo via CDP (Chrome DevTools Protocol).
-        Equivalente a Playwright's page.addInitScript():
-        - Se ejecuta ANTES del JS de la página
-        - Intercepta console, errors, fetch, XHR desde el inicio
-        """
         if self._cdp_configured:
             return
-
         try:
-            # Acceder al driver Selenium subyacente para CDP
             selenium_driver = getattr(driver, '_driver', None) or getattr(driver, 'driver', None)
             if selenium_driver and hasattr(selenium_driver, 'execute_cdp_cmd'):
                 selenium_driver.execute_cdp_cmd(
@@ -158,26 +135,19 @@ class SuneduScraper:
                     {'source': MONITOR_INIT_SCRIPT}
                 )
                 self._cdp_configured = True
-                log.info("[MONITOR] ✅ CDP monitoring configurado (pre-load injection)")
+                log.info("[MONITOR] ✅ CDP monitoring activo")
                 return
         except Exception as e:
-            log.warning(f"[MONITOR] CDP no disponible ({e}), usando post-load injection")
-
-        # Fallback: inyectar después de cargar (menos ideal pero funcional)
+            log.warning(f"[MONITOR] CDP no disponible ({e}), usando fallback")
         self._inject_monitor_fallback(driver)
 
     def _inject_monitor_fallback(self, driver: Driver):
-        """Fallback: inyecta el monitor DESPUÉS de que la página carga."""
         try:
             driver.run_js(MONITOR_INIT_SCRIPT)
         except Exception:
             pass
 
-    def _collect_events(self, driver: Driver, context: str = "") -> List[Dict]:
-        """
-        Recoge todos los eventos capturados del navegador y los loguea.
-        Retorna la lista de eventos para análisis.
-        """
+    def _collect_events(self, driver: Driver, context: str = ""):
         try:
             events = driver.run_js("""
                 var evts = window.__capturedEvents || [];
@@ -185,55 +155,42 @@ class SuneduScraper:
                 return evts;
             """)
             if not events:
-                return []
-
+                return
             for evt in events:
                 tipo = evt.get("type", "UNKNOWN")
                 level = evt.get("level", "")
-
-                # Construir mensaje legible
                 if tipo == "CONSOLE":
                     msg = f"[BROWSER][CONSOLE.{level.upper()}] {evt.get('message', '')}"
                 elif tipo == "JS_ERROR":
                     msg = f"[BROWSER][JS_ERROR] {evt.get('message', '')} @ {evt.get('source', '')}:{evt.get('line', '')}"
-                elif tipo == "PROMISE_ERROR":
-                    msg = f"[BROWSER][PROMISE_FAIL] {evt.get('message', '')}"
                 elif tipo == "HTTP_ERROR":
                     msg = f"[BROWSER][HTTP_{evt.get('status', '???')}] {evt.get('method', '')} {evt.get('url', '')}"
                 elif tipo == "NETWORK_ERROR":
                     msg = f"[BROWSER][NET_FAIL] {evt.get('method', '')} {evt.get('url', '')} — {evt.get('message', '')}"
                 else:
                     msg = f"[BROWSER][{tipo}] {evt}"
-
                 if context:
                     msg = f"[{context}] {msg}"
-
-                # Nivel de log según tipo
                 if tipo in ("JS_ERROR", "NETWORK_ERROR", "PROMISE_ERROR") or (tipo == "HTTP_ERROR" and evt.get("status", 0) >= 500):
                     log.error(msg)
                 elif tipo == "HTTP_ERROR" or (tipo == "CONSOLE" and level == "warn"):
                     log.warning(msg)
                 else:
                     log.debug(msg)
-
-            return events
         except Exception:
-            return []
+            pass
 
     # ═══════════════════════════════════════════════════════════════════
-    # DETECCIÓN DE ESTADO (Idéntico al bot original)
+    # DETECCIÓN DE ESTADO — Idéntico al bot original
     # ═══════════════════════════════════════════════════════════════════
 
-    def _detectar_estado(self, driver: Driver) -> str:
+    def detectar_estado(self, driver: Driver) -> str:
         """Retorna: 'tabla', 'no_encontrado', 'verificacion_fallida', 'verificacion', 'nada', 'cargando'"""
         try:
             return driver.run_js("""
-                // Tabla con resultados
                 var tabla = document.querySelector('table.custom-table');
                 if (tabla && tabla.querySelectorAll('tbody tr.ng-star-inserted').length > 0)
                     return 'tabla';
-
-                // Swal dialogs
                 var swal = document.querySelector('.swal2-html-container');
                 if (swal) {
                     var txt = (swal.innerText || '').toLowerCase();
@@ -241,8 +198,6 @@ class SuneduScraper:
                     if (txt.includes('verificaci') && txt.includes('fallid')) return 'verificacion_fallida';
                     if (txt.includes('verificaci') || txt.includes('seguridad')) return 'verificacion';
                 }
-
-                // Checkbox sin marcar o iframe turnstile visible
                 var cbs = document.querySelectorAll('input[type="checkbox"]');
                 for (var i = 0; i < cbs.length; i++) {
                     if (!cbs[i].checked) {
@@ -261,25 +216,22 @@ class SuneduScraper:
                         if (r.width > 0 && r.height > 0) return 'verificacion';
                     }
                 }
-
-                // Página cargada pero sin resultado
                 var input = document.querySelector('input[formcontrolname="dni"]') ||
                             document.querySelector('input[type="text"]');
                 if (input) {
                     var spinner = document.querySelector('.p-progress-spinner, .loading, .spinner');
                     if (!spinner) return 'nada';
                 }
-
                 return 'cargando';
             """)
         except Exception:
             return 'cargando'
 
     # ═══════════════════════════════════════════════════════════════════
-    # ACCIONES (Idénticas al bot original)
+    # ACCIONES — Idénticas al bot original
     # ═══════════════════════════════════════════════════════════════════
 
-    def _cerrar_swal(self, driver: Driver):
+    def cerrar_swal(self, driver: Driver):
         try:
             driver.run_js("""
                 var btn = document.querySelector('button.swal2-close') ||
@@ -289,8 +241,8 @@ class SuneduScraper:
         except Exception:
             pass
 
-    def _click_checkbox(self, driver: Driver) -> bool:
-        """Intenta clickear el checkbox de verificación (lógica del bot original)."""
+    def click_checkbox(self, driver: Driver) -> bool:
+        """Intenta clickear el checkbox de verificación."""
         try:
             clicked = driver.run_js("""
                 var cbs = document.querySelectorAll('input[type="checkbox"]');
@@ -324,201 +276,111 @@ class SuneduScraper:
 
         return False
 
-    def _captcha_esta_completado(self, driver: Driver) -> bool:
-        """
-        Verificación ESTRICTA: retorna True SOLO si el captcha/Turnstile
-        está claramente completado (checkbox marcado, sin challenge visible).
-        """
-        try:
-            return driver.run_js("""
-                // 1. ¿Hay algún checkbox SIN marcar? → NO completado
-                var cbs = document.querySelectorAll('input[type="checkbox"]');
-                for (var i = 0; i < cbs.length; i++) {
-                    if (!cbs[i].checked) {
-                        var r = cbs[i].getBoundingClientRect();
-                        var p = (cbs[i].closest('label') || cbs[i].parentElement);
-                        var pr = p ? p.getBoundingClientRect() : r;
-                        if (r.width > 0 || r.height > 0 || pr.width > 0 || pr.height > 0)
-                            return false;  // Hay checkbox visible sin marcar
-                    }
-                }
-
-                // 2. ¿Hay iframe de Turnstile/challenges visible? → NO completado
-                var iframes = document.querySelectorAll('iframe');
-                for (var i = 0; i < iframes.length; i++) {
-                    var src = iframes[i].src || '';
-                    if (src.includes('turnstile') || src.includes('challenges')) {
-                        var r = iframes[i].getBoundingClientRect();
-                        if (r.width > 0 && r.height > 0) return false;
-                    }
-                }
-
-                // 3. ¿Hay swal de verificación? → NO completado
-                var swal = document.querySelector('.swal2-html-container');
-                if (swal) {
-                    var txt = (swal.innerText || '').toLowerCase();
-                    if (txt.includes('verificaci') || txt.includes('seguridad'))
-                        return false;
-                }
-
-                // 4. ¿Existe el input de DNI? → Página cargada, captcha pasado
-                var input = document.querySelector('input[formcontrolname="dni"]') ||
-                            document.querySelector('input[type="text"]');
-                if (!input) return false;  // Página ni cargó
-
-                // Si hay checkbox y TODOS están marcados → completado
-                if (cbs.length > 0) {
-                    for (var i = 0; i < cbs.length; i++) {
-                        if (!cbs[i].checked) return false;
-                    }
-                    return true;
-                }
-
-                // No hay checkbox visible y no hay challenge → asumimos completado
-                return true;
-            """) or False
-        except Exception:
-            return False
-
-    def _verificar_captcha_estricto(self, driver: Driver, max_intentos: int = 5) -> bool:
-        """
-        Verificación ESTRICTA del captcha con hasta N intentos.
-        Si el captcha no está completado:
-          1. Intenta click en checkbox
-          2. Espera 4 segundos
-          3. Verifica si pasó
-          4. Si no → F5 + 4s y reintentar
-        Retorna True si el captcha está verificado, False si agotó intentos.
-        """
-        for i in range(1, max_intentos + 1):
-            # Verificar si ya está completado
-            if self._captcha_esta_completado(driver):
-                log.info(f"[CAPTCHA] ✅ Verificación completada (intento {i}/{max_intentos})")
-                return True
-
-            log.warning(f"[CAPTCHA] ⏳ No completado, intento {i}/{max_intentos}")
-
-            # Detectar estado actual
-            estado = self._detectar_estado(driver)
-
-            if estado == 'verificacion_fallida':
-                log.warning("[CAPTCHA] ❌ Verificación fallida → F5 + 4s")
-                self._cerrar_swal(driver)
-                self._forzar_refresh(driver)
-                continue
-
-            if estado == 'verificacion':
-                log.info("[CAPTCHA] Intentando click en checkbox...")
-                self._cerrar_swal(driver)
-                time.sleep(0.5)
-                self._click_checkbox(driver)
-                time.sleep(4)  # Esperar 4 segundos para que se procese
-
-                # Re-verificar
-                if self._captcha_esta_completado(driver):
-                    log.info(f"[CAPTCHA] ✅ Verificación completada tras click (intento {i})")
-                    return True
-                else:
-                    log.warning("[CAPTCHA] ❌ Click no resolvió → F5 + 4s")
-                    self._cerrar_swal(driver)
-                    self._forzar_refresh(driver)
-                    continue
-
-            if estado in ('cargando', 'nada'):
-                # Página no terminó de cargar o no muestra nada → F5
-                log.warning(f"[CAPTCHA] Estado '{estado}' → F5 + 4s")
-                self._forzar_refresh(driver)
-                continue
-
-            # Si detectó 'tabla' o 'no_encontrado' aquí, algo raro
-            # pero podría ser resultado de búsqueda anterior
-            if estado in ('tabla', 'no_encontrado'):
-                self._cerrar_swal(driver)
-                # Limpiar resultado anterior y re-verificar
-                log.info(f"[CAPTCHA] Estado '{estado}' pre-búsqueda, cerrando swal...")
-                time.sleep(1)
-                if self._captcha_esta_completado(driver):
-                    return True
-
-        log.error(f"[CAPTCHA] ❌ No se pudo verificar tras {max_intentos} intentos")
-        return False
-
-    def _buscar_dni(self, driver: Driver, dni: str) -> bool:
-        """Ingresa DNI y click en Buscar. Retorna True si ambos OK."""
+    def buscar_dni(self, driver: Driver, dni: str) -> bool:
+        """Ingresa DNI y click en Buscar. Retorna True si la búsqueda fue disparada."""
+        # ── 1. Ingresar DNI en el campo ──
         dni_ok = driver.run_js(f"""
             var input = document.querySelector('input[formcontrolname="dni"]') ||
                         document.querySelector('input[type="text"]');
-            if (!input) return false;
+            if (!input) return 'NO_INPUT';
             var setter = Object.getOwnPropertyDescriptor(
                 window.HTMLInputElement.prototype, 'value').set;
             setter.call(input, '{dni}');
             input.dispatchEvent(new Event('input', {{ bubbles: true }}));
             input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-            return true;
+            return input.value;
         """)
-        if not dni_ok:
-            log.error("[DNI] Campo no encontrado")
+        if dni_ok == 'NO_INPUT':
+            log.error("[DNI] Campo de entrada no encontrado")
             return False
+        if str(dni_ok) != str(dni):
+            log.warning(f"[DNI] Valor del campo='{dni_ok}' != DNI esperado='{dni}'. Reintentando input...")
+            # Segundo intento con focus + clear
+            driver.run_js(f"""
+                var input = document.querySelector('input[formcontrolname="dni"]') ||
+                            document.querySelector('input[type="text"]');
+                if (input) {{
+                    input.focus();
+                    input.value = '';
+                    var setter = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype, 'value').set;
+                    setter.call(input, '{dni}');
+                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+            """)
+            time.sleep(0.3)
 
         time.sleep(0.5)
 
-        btn_ok = driver.run_js("""
+        # ── 2. Encontrar y clickear botón Buscar ──
+        btn_result = driver.run_js("""
             var spans = document.querySelectorAll('span.p-button-label');
             for (var i = 0; i < spans.length; i++) {
                 if (spans[i].textContent.trim() === 'Buscar') {
                     var btn = spans[i].closest('button');
-                    if (btn) { btn.click(); return true; }
+                    if (btn) {
+                        if (btn.disabled) return 'DISABLED';
+                        btn.click();
+                        return 'OK';
+                    }
                 }
             }
             var btns = document.querySelectorAll('button');
             for (var i = 0; i < btns.length; i++) {
                 if (btns[i].textContent.trim().includes('Buscar')) {
-                    btns[i].click(); return true;
+                    if (btns[i].disabled) return 'DISABLED';
+                    btns[i].click();
+                    return 'OK';
                 }
             }
-            return false;
+            return 'NOT_FOUND';
         """)
-        if not btn_ok:
-            log.error("[BUSCAR] Botón no encontrado")
+
+        if btn_result == 'NOT_FOUND':
+            log.error("[BUSCAR] Botón no encontrado en el DOM")
+            return False
+        if btn_result == 'DISABLED':
+            log.error("[BUSCAR] Botón encontrado pero está DISABLED (verificación pendiente?)")
             return False
 
-        log.info(f"[OK] DNI {dni} buscado")
+        # ── 3. Verificar que la búsqueda se disparó ──
+        time.sleep(1.5)
+        post_estado = self.detectar_estado(driver)
+        if post_estado == 'nada':
+            # La página no reaccionó al click → intentar click de nuevo
+            log.warning("[BUSCAR] Click no disparó búsqueda (estado='nada'), reintentando click...")
+            driver.run_js("""
+                var spans = document.querySelectorAll('span.p-button-label');
+                for (var i = 0; i < spans.length; i++) {
+                    if (spans[i].textContent.trim() === 'Buscar') {
+                        var btn = spans[i].closest('button');
+                        if (btn && !btn.disabled) { btn.click(); return; }
+                    }
+                }
+            """)
+            time.sleep(1)
+            post_estado = self.detectar_estado(driver)
+            if post_estado == 'nada':
+                log.error("[BUSCAR] Segundo click tampoco disparó búsqueda → fallo")
+                return False
+
+        log.info(f"[OK] DNI {dni} buscado → estado post-click: {post_estado}")
         return True
 
-    def _esperar_resultado(self, driver: Driver, timeout: int = 15) -> str:
-        """Espera resultado post-búsqueda. Retorna estado final."""
+    def esperar_resultado(self, driver: Driver, timeout: int = 15) -> str:
+        """Espera resultado post-búsqueda."""
         inicio = time.time()
         while time.time() - inicio < timeout:
-            estado = self._detectar_estado(driver)
+            estado = self.detectar_estado(driver)
             if estado not in ('cargando', 'nada'):
                 return estado
-            # Si lleva más de 8 segundos en 'nada', retornar
-            if estado == 'nada' and (time.time() - inicio) > 8:
+            if estado == 'nada' and (time.time() - inicio) > 12:
                 return 'nada'
             time.sleep(0.5)
         return 'timeout'
 
-    def _forzar_refresh(self, driver: Driver):
-        """Fuerza la recarga de la página y espera 4 segundos."""
-        log.info("[F5] Forzando recarga, esperando 4 segundos...")
-        try:
-            driver.run_js("location.reload(true);")
-        except Exception:
-            try:
-                driver.get(self.URL)
-                self._primera_carga = False
-            except Exception:
-                pass
-        time.sleep(4)
-        # Re-inyectar monitor si no es CDP
-        if not self._cdp_configured:
-            self._inject_monitor_fallback(driver)
-
-    # ═══════════════════════════════════════════════════════════════════
-    # EXTRACCIÓN DE DATOS (Idéntica al bot original)
-    # ═══════════════════════════════════════════════════════════════════
-
-    def _extraer_datos(self, driver: Driver, dni: str) -> List[Dict[str, Any]]:
+    def extraer_datos(self, driver: Driver, dni: str) -> List[Dict[str, Any]]:
         try:
             data = driver.run_js("""
                 var res = [];
@@ -577,139 +439,219 @@ class SuneduScraper:
             return []
 
     # ═══════════════════════════════════════════════════════════════════
-    # MÉTODO PRINCIPAL — Lógica EXACTA del bot original
+    # _pasar_verificacion — COPIA EXACTA del bot original (workers.py)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _pasar_verificacion(self, driver: Driver, espera_extra: bool = False) -> bool:
+        """
+        Detecta y supera la verificación de Turnstile/checkbox.
+        espera_extra: True si la página fue recién cargada/recargada.
+        Retorna True si la verificación fue superada o no era necesaria.
+
+        PORTADO DIRECTAMENTE de workers.py SuneduLogic._pasar_verificacion()
+        """
+        estado = self.detectar_estado(driver)
+        log.info(f"[VERIF] Estado inicial: {estado}")
+
+        # Limpiar resultados viejos de un DNI anterior
+        if estado in ("tabla", "no_encontrado"):
+            self.cerrar_swal(driver)
+            time.sleep(0.5)
+            estado = self.detectar_estado(driver)
+            log.info(f"[VERIF] Estado post-limpieza: {estado}")
+
+        # Si la página es fresca, dar tiempo extra para que cargue Turnstile
+        if espera_extra and estado in ("cargando", "nada"):
+            log.info("[VERIF] Página fresca, esperando 2s extra para Turnstile...")
+            time.sleep(2)
+            estado = self.detectar_estado(driver)
+            log.info(f"[VERIF] Estado post-espera: {estado}")
+
+        # Verificación fallida explícita → no se puede superar, necesita F5
+        if estado == "verificacion_fallida":
+            log.warning("[VERIF] ❌ Verificación fallida explícita")
+            self.cerrar_swal(driver)
+            return False
+
+        # No hay verificación → OK, puede buscar
+        if estado != "verificacion":
+            log.info(f"[VERIF] ✅ No requiere verificación (estado: {estado})")
+            return True
+
+        # Intentar pasar la verificación (hasta 3 intentos)
+        for attempt in range(3):
+            log.info(f"[VERIF] Intento {attempt + 1}/3 de resolver verificación...")
+            self.cerrar_swal(driver)
+            time.sleep(0.5)
+            self.click_checkbox(driver)
+            time.sleep(3)
+
+            post = self.detectar_estado(driver)
+            log.info(f"[VERIF] Estado post-click: {post}")
+
+            if post == "verificacion_fallida":
+                log.warning("[VERIF] ❌ Verificación fallida post-click")
+                self.cerrar_swal(driver)
+                return False
+
+            if post != "verificacion":
+                log.info(f"[VERIF] ✅ Verificación superada (estado: {post})")
+                time.sleep(1)
+                return True
+
+            log.warning(f"[VERIF] ⏳ Intento {attempt + 1}/3 no resolvió")
+
+        log.error("[VERIF] ❌ No se pudo superar tras 3 intentos")
+        return False
+
+    def _recargar_pagina(self, driver: Driver):
+        """Recarga la página y espera 4 segundos."""
+        log.info("[F5] Forzando recarga, esperando 4 segundos...")
+        try:
+            driver.run_js("location.reload(true);")
+        except Exception:
+            try:
+                driver.get(self.URL)
+                self._primera_carga = False
+            except Exception:
+                pass
+        time.sleep(4)
+        # Re-inyectar monitor si no es CDP
+        if not self._cdp_configured:
+            self._inject_monitor_fallback(driver)
+
+    # ═══════════════════════════════════════════════════════════════════
+    # MÉTODO PRINCIPAL — COPIA EXACTA del bot original (workers.py)
     # ═══════════════════════════════════════════════════════════════════
 
     def procesar_dni(self, driver: Driver, dni: str) -> Dict[str, Any]:
         """
-        Flujo (idéntico a sunedu_botasaurus.py):
-        1. Cargar página (6s primera vez, 4s en reintentos)
-        2. Verificación: si falla → F5 + 4s y REINTENTAR MISMO DNI
-        3. Buscar DNI → esperar resultado
-        4. Si tabla → extraer datos
-        5. Si no_encontrado → cerrar, esperar 4s, retornar
-        6. Si verificación fallida / nada / timeout → F5 + 4s y REINTENTAR
-        7. Máximo N intentos por DNI
-        """
-        intento = 0
+        PORTADO DIRECTAMENTE de workers.py SuneduLogic.procesar_un_dni()
 
-        while intento < SUNEDU_MAX_RETRIES:
-            intento += 1
+        Flujo:
+        1. Preparar página (primera carga 6s, reintentos F5+4s, mismo sesión cerrar swal)
+        2. _pasar_verificacion() → si falla → F5 + 4s + reintentar MISMO DNI
+        3. Buscar DNI → esperar resultado
+        4. tabla → extraer
+        5. no_encontrado → retornar
+        6. verificacion/verificacion_fallida/nada/timeout → F5 + 4s + reintentar
+        7. Máximo SUNEDU_MAX_RETRIES intentos
+        """
+        ultimo_motivo = Motivo.MAX_REINTENTOS
+
+        for intento in range(1, SUNEDU_MAX_RETRIES + 1):
             log.info(f"{'='*50}")
             log.info(f"DNI: {dni} | Intento {intento}/{SUNEDU_MAX_RETRIES}")
             log.info(f"{'='*50}")
 
             try:
-                # === CARGAR PÁGINA ===
+                # ── Preparar página (cada reintento repite el flujo completo) ──
+                pagina_fresca = False
+
                 if self._primera_carga:
-                    log.info("[CARGA] Primera carga, esperando 6 segundos...")
+                    log.info("[CARGA] Primera carga...")
                     driver.get(self.URL)
                     time.sleep(6)
                     self._primera_carga = False
-                    # Configurar monitoreo CDP (solo una vez)
+                    pagina_fresca = True
+                    # CDP monitoring
                     self._setup_cdp_monitoring(driver)
-                    # Inyectar fallback si CDP no funcionó
                     if not self._cdp_configured:
                         self._inject_monitor_fallback(driver)
                 elif intento > 1:
-                    self._forzar_refresh(driver)
-                # else: intento 1 pero no es primera carga → página ya cargada
+                    log.info(f"[REINTENTO {intento}] Repitiendo flujo completo: F5 → verificar → buscar → esperar")
+                    self._recargar_pagina(driver)
+                    pagina_fresca = True
+                else:
+                    # Nuevo DNI, misma sesión → limpiar estado anterior
+                    self.cerrar_swal(driver)
+                    time.sleep(0.3)
 
-                # Recoger eventos del navegador
-                self._collect_events(driver, f"DNI={dni} PRE_SEARCH")
+                # Recoger eventos
+                self._collect_events(driver, f"DNI={dni} PRE")
 
-                # === VERIFICACIÓN ESTRICTA PRE-BÚSQUEDA ===
-                # Intenta hasta 5 veces pasar el captcha antes de buscar
-                if not self._verificar_captcha_estricto(driver, max_intentos=5):
-                    log.error("[CAPTCHA] No se pudo superar la verificación → reintentar")
-                    self._forzar_refresh(driver)
+                # ── Verificación de seguridad (Turnstile) ──
+                if not self._pasar_verificacion(driver, espera_extra=pagina_fresca):
+                    log.warning("[VERIF] Verificación no superada → siguiente intento con F5")
+                    ultimo_motivo = Motivo.VERIFICACION_NO_SUPERADA
                     continue
 
-                # === BUSCAR DNI (solo si captcha verificado) ===
-                if not self._buscar_dni(driver, dni):
-                    log.warning("[BUSCAR] No se pudo buscar → F5 + 4s y reintentar")
-                    self._forzar_refresh(driver)
+                # ── Buscar DNI ──
+                if not self.buscar_dni(driver, dni):
+                    log.warning("[BUSCAR] Búsqueda no se disparó → siguiente intento con F5")
+                    ultimo_motivo = Motivo.BOTON_NO_ENCONTRADO
                     continue
 
-                time.sleep(1)  # Pequeña espera post-búsqueda
+                # Esperar resultado (buscar_dni ya verificó que se disparó la búsqueda)
+                resultado = self.esperar_resultado(driver, timeout=15)
+                log.info(f"[RESULTADO] {resultado}")
 
-                # === ESPERAR RESULTADO ===
-                resultado = self._esperar_resultado(driver, timeout=15)
-                log.info(f"[RESULTADO] Estado: {resultado}")
+                # Recoger eventos post-búsqueda
+                self._collect_events(driver, f"DNI={dni} POST")
 
-                # Recoger eventos del navegador post-búsqueda
-                self._collect_events(driver, f"DNI={dni} POST_SEARCH")
+                if resultado == "tabla":
+                    datos = self.extraer_datos(driver, dni)
+                    if datos:
+                        time.sleep(4)  # Espera anti-ban
+                        return {"encontrado": True, "datos": datos, "motivo": "Encontrado en SUNEDU"}
+                    return {"encontrado": False, "datos": None, "motivo": Motivo.ERROR_EXTRACCION}
 
-                # === TABLA CON RESULTADOS ===
-                if resultado == 'tabla':
-                    registros = self._extraer_datos(driver, dni)
-                    if registros:
-                        log.info("[ESPERA] Resultados encontrados, esperando 4 segundos...")
-                        time.sleep(4)
-                        return {"encontrado": True, "datos": registros, "motivo": "Encontrado"}
-                    # Tabla presente pero sin datos
+                elif resultado == "no_encontrado":
+                    self.cerrar_swal(driver)
+                    log.info(f"[--] DNI {dni}: No encontrado")
+                    time.sleep(4)  # Espera anti-ban
                     return {"encontrado": False, "datos": None, "motivo": Motivo.NO_ENCONTRADO}
 
-                # === NO ENCONTRADO ===
-                elif resultado == 'no_encontrado':
-                    self._cerrar_swal(driver)
-                    log.info(f"[--] DNI {dni}: No se encontraron resultados")
-                    log.info("[ESPERA] Esperando 4 segundos antes del siguiente DNI...")
-                    time.sleep(4)
-                    return {"encontrado": False, "datos": None, "motivo": Motivo.NO_ENCONTRADO}
-
-                # === VERIFICACIÓN FALLIDA POST-BÚSQUEDA ===
-                elif resultado == 'verificacion_fallida':
-                    log.warning("[VERIF] Verificación fallida post-búsqueda → F5 + 4s y reintentar")
-                    self._cerrar_swal(driver)
-                    self._forzar_refresh(driver)
+                elif resultado == "verificacion_fallida":
+                    log.warning("[VERIF] Verificación fallida post-búsqueda → siguiente intento con F5")
+                    self.cerrar_swal(driver)
+                    ultimo_motivo = Motivo.CAPTCHA_FALLO
                     continue
 
-                # === VERIFICACIÓN POST-BÚSQUEDA ===
-                elif resultado == 'verificacion':
-                    log.warning("[VERIF] Verificación post-búsqueda detectada")
-                    self._cerrar_swal(driver)
+                elif resultado == "verificacion":
+                    log.warning("[VERIF] Verificación post-búsqueda")
+                    self.cerrar_swal(driver)
                     time.sleep(0.5)
-                    self._click_checkbox(driver)
-                    time.sleep(2)
+                    self.click_checkbox(driver)
+                    time.sleep(3)
 
-                    # Revisar estado después de intentar resolver
-                    post_estado = self._detectar_estado(driver)
-                    if post_estado == 'tabla':
-                        registros = self._extraer_datos(driver, dni)
-                        if registros:
+                    post = self.detectar_estado(driver)
+                    log.info(f"[VERIF] Post-click estado: {post}")
+
+                    if post == "tabla":
+                        datos = self.extraer_datos(driver, dni)
+                        if datos:
                             time.sleep(4)
-                            return {"encontrado": True, "datos": registros, "motivo": "Encontrado"}
-                        return {"encontrado": False, "datos": None, "motivo": Motivo.NO_ENCONTRADO}
-                    elif post_estado == 'no_encontrado':
-                        self._cerrar_swal(driver)
-                        log.info(f"[--] DNI {dni}: No se encontraron resultados")
+                            return {"encontrado": True, "datos": datos, "motivo": "Encontrado en SUNEDU"}
+                        return {"encontrado": False, "datos": None, "motivo": Motivo.ERROR_EXTRACCION}
+
+                    elif post == "no_encontrado":
+                        self.cerrar_swal(driver)
                         time.sleep(4)
                         return {"encontrado": False, "datos": None, "motivo": Motivo.NO_ENCONTRADO}
+
                     else:
-                        log.warning("[VERIF] No superada post-búsqueda → F5 + 4s y reintentar mismo DNI")
-                        self._cerrar_swal(driver)
-                        self._forzar_refresh(driver)
+                        log.warning("[VERIF] No superada post-búsqueda → siguiente intento con F5")
+                        self.cerrar_swal(driver)
+                        ultimo_motivo = Motivo.VERIFICACION_NO_SUPERADA
                         continue
 
-                # === NADA APARECIÓ ===
-                elif resultado == 'nada':
-                    log.warning("[NADA] No apareció ningún mensaje ni resultado → F5 + 4s y reintentar")
+                elif resultado == "nada":
+                    log.warning("[NADA] Sin resultado ni mensaje → siguiente intento con F5")
                     self._collect_events(driver, f"DNI={dni} NADA")
-                    self._forzar_refresh(driver)
+                    ultimo_motivo = Motivo.NADA_APARECIO
                     continue
 
-                # === TIMEOUT ===
-                elif resultado == 'timeout':
-                    log.warning("[TIMEOUT] Sin respuesta de la página → F5 + 4s y reintentar")
+                elif resultado == "timeout":
+                    log.warning("[TIMEOUT] Sin respuesta → siguiente intento con F5")
                     self._collect_events(driver, f"DNI={dni} TIMEOUT")
-                    self._forzar_refresh(driver)
+                    ultimo_motivo = Motivo.TIMEOUT
                     continue
 
             except Exception as e:
-                log.error(f"[!] Error: {repr(e)} → F5 + 4s y reintentar")
+                log.error(f"[!] Error: {repr(e)} → siguiente intento con F5")
                 self._collect_events(driver, f"DNI={dni} EXCEPTION")
-                self._forzar_refresh(driver)
+                ultimo_motivo = f"{Motivo.PAGINA_NO_CARGO}: {str(e)[:200]}"
 
-        # Agotados los intentos
-        raise RuntimeError(f"{Motivo.MAX_REINTENTOS} ({SUNEDU_MAX_RETRIES} intentos)")
+        # Agotados reintentos
+        raise RuntimeError(f"{ultimo_motivo} ({SUNEDU_MAX_RETRIES} intentos)")

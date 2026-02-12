@@ -8,7 +8,7 @@ function FileUpload() {
 
   const selectFile = useCallback((file) => {
     dispatch({ type: 'SET_FILE', payload: file })
-    addLog(`File selected: ${file.name}`, 'text-slate-400')
+    addLog(`Archivo seleccionado: ${file.name}`, 'text-gray-500')
   }, [dispatch, addLog])
 
   const clearFile = useCallback(() => {
@@ -32,7 +32,7 @@ function FileUpload() {
 
   return (
     <div className="mb-6">
-      <h3 className="text-xs uppercase tracking-widest text-slate-500 font-bold mb-2">Input Source</h3>
+      <h3 className="text-xs uppercase tracking-widest text-gray-400 font-bold mb-2">Archivo de Entrada</h3>
 
       <div
         ref={dropRef}
@@ -40,7 +40,7 @@ function FileUpload() {
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         onClick={() => inputRef.current?.click()}
-        className="border-2 border-dashed border-slate-600 hover:border-primary hover:bg-primary/5 transition-all rounded-xl p-6 text-center cursor-pointer group relative overflow-hidden"
+        className="border-2 border-dashed border-gray-300 hover:border-primary hover:bg-blue-50 transition-all rounded-xl p-6 text-center cursor-pointer group relative overflow-hidden"
       >
         <input
           ref={inputRef}
@@ -49,27 +49,27 @@ function FileUpload() {
           onChange={onChange}
           className="hidden"
         />
-        <span className="material-icons-round text-4xl text-slate-500 group-hover:text-primary transition-colors mb-2 block">
+        <span className="material-icons-round text-4xl text-gray-300 group-hover:text-primary transition-colors mb-2 block">
           cloud_upload
         </span>
-        <p className="text-sm text-slate-300 font-medium group-hover:text-white">
-          {state.selectedFile ? 'File selected' : 'Drop CSV/XLSX'}
+        <p className="text-sm text-gray-500 font-medium group-hover:text-gray-700">
+          {state.selectedFile ? 'Archivo seleccionado' : 'Arrastra CSV/XLSX aquí'}
         </p>
-        <p className="text-xs text-slate-500 mt-1">Max 50MB</p>
+        <p className="text-xs text-gray-400 mt-1">Máx 50MB</p>
       </div>
 
       {state.selectedFile && (
-        <div className="mt-3 p-3 rounded-lg bg-primary/10 border border-primary/20">
+        <div className="mt-3 p-3 rounded-lg bg-blue-50 border border-blue-200">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 min-w-0">
               <span className="material-icons-round text-primary text-sm">description</span>
-              <span className="text-sm text-white truncate">{state.selectedFile.name}</span>
+              <span className="text-sm text-gray-700 truncate font-medium">{state.selectedFile.name}</span>
             </div>
-            <button onClick={clearFile} className="text-slate-400 hover:text-neon-red transition-colors ml-2 shrink-0">
+            <button onClick={clearFile} className="text-gray-400 hover:text-red-500 transition-colors ml-2 shrink-0">
               <span className="material-icons-round text-sm">close</span>
             </button>
           </div>
-          <p className="text-xs text-slate-500 mt-1 font-mono">
+          <p className="text-xs text-gray-400 mt-1 font-mono">
             {(state.selectedFile.size / 1024).toFixed(1)} KB
           </p>
         </div>
