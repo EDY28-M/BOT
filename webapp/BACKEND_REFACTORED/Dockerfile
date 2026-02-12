@@ -12,15 +12,17 @@ RUN apt-get update && apt-get install -y \
     unzip \
     curl \
     libnss3 \
-    libgconf-2-4 \
-    libfontconfig1 \
-    libxss1 \
-    libappindicator1 \
-    libasound2 \
-    fonts-liberation \
     libatk-bridge2.0-0 \
-    libgtk-3-0 \
+    libcups2 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
     libgbm1 \
+    libasound2 \
+    libpangocairo-1.0-0 \
+    libgtk-3-0 \
+    fonts-liberation \
+    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Instalar Google Chrome Stable
