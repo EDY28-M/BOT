@@ -1,6 +1,6 @@
-# 🤖 SISTEMA DE CONSULTAS GRADOS Y TITULOS(SCGT) — DNI Automation System
+# SISTEMA DE CONSULTAS GRADOS Y TITULOS (SCGT) — DNI Automation System
 
-## � Requisitos del Equipo
+## Requisitos del Equipo
 
 > ⚠️ **IMPORTANTE**: Este sistema ejecuta dos navegadores Chrome en simultáneo (SUNEDU + MINEDU) con scraping en tiempo real. Se requiere hardware adecuado para evitar cuellos de botella.
 
@@ -23,21 +23,21 @@
 
 ---
 
-## �📋 Resumen
+## Resumen
 
 Backend refactorizado en **Python (FastAPI + Botasaurus)** para automatización de consultas DNI en **SUNEDU** y **MINEDU**. Incluye:
 
-- 🔍 Web scraping con anti-detección (Botasaurus/Selenium)
-- 🖼️ OCR de captcha MINEDU (ddddocr)
-- 📊 Exportación Excel con 3 hojas, colores y formato profesional
-- 🔄 Recuperación automática de DNIs atascados
-- ✅ Validación estricta de DNIs (8 dígitos)
-- 📡 Monitoreo CDP del navegador en tiempo real
-- 🛡️ Sistema de reintentos configurable
+- Web scraping con anti-detección (Botasaurus/Selenium)
+- OCR de captcha MINEDU (ddddocr)
+- Exportación Excel con 3 hojas, colores y formato profesional
+- Recuperación automática de DNIs atascados
+- Validación estricta de DNIs (8 dígitos)
+- Monitoreo CDP del navegador en tiempo real
+- Sistema de reintentos configurable
 
 ---
 
-## 🏗️ Arquitectura
+## Arquitectura
 
 ```
 webapp/
@@ -52,8 +52,8 @@ webapp/
 │   │   │   ├── models.py            # Modelos: Registro, Lote
 │   │   │   └── repository.py        # CRUD: tomar_siguiente, actualizar_resultado, recuperar_procesando
 │   │   ├── scrapers/
-│   │   │   ├── sunedu.py            # 🔍 Scraper SUNEDU (Botasaurus + Monitoring)
-│   │   │   ├── minedu.py            # 🔍 Scraper MINEDU (Botasaurus + OCR + Monitoring)
+│   │   │   ├── sunedu.py            # Scraper SUNEDU (Botasaurus + Monitoring)
+│   │   │   ├── minedu.py            # Scraper MINEDU (Botasaurus + OCR + Monitoring)
 │   │   │   └── node_engine/         # (Motor Node.js experimental, no activo)
 │   │   ├── services/
 │   │   │   ├── excel_service.py     # Parseo + Exportación Excel (3 hojas, colores, Aptos Narrow)
@@ -74,7 +74,7 @@ webapp/
 
 ---
 
-## 🔌 Conexiones y Puertos
+## Conexiones y Puertos
 
 | Componente | URL | Puerto |
 |---|---|---|
@@ -91,7 +91,7 @@ El frontend (`vite.config.js`) proxea `/api` → `http://127.0.0.1:8000/api`.
 
 ---
 
-## 🚀 Cómo Ejecutar
+## Cómo Ejecutar
 
 ### 1. Backend
 ```bash
@@ -113,7 +113,7 @@ Navegar a `http://localhost:3000`
 
 ---
 
-## 📡 API Endpoints
+## API Endpoints
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
@@ -131,7 +131,7 @@ Navegar a `http://localhost:3000`
 
 ---
 
-## 🔄 Pipeline de Estados
+## Pipeline de Estados
 
 ```
 PENDIENTE → PROCESANDO_SUNEDU → FOUND_SUNEDU ✅
@@ -151,7 +151,7 @@ Si un worker se cae o el navegador se cierra inesperadamente:
 
 ---
 
-## ✅ Validación de DNIs en Importación
+## Validación de DNIs en Importación
 
 Al subir un archivo Excel/CSV/TXT:
 
@@ -172,7 +172,7 @@ Al subir un archivo Excel/CSV/TXT:
 
 ---
 
-## 📊 Exportación Excel
+## Exportación Excel
 
 El archivo descargado contiene **3 hojas**:
 
@@ -209,7 +209,7 @@ El archivo descargado contiene **3 hojas**:
 
 ---
 
-## 🔍 Scrapers
+## Scrapers
 
 ### SUNEDU (`sunedu.py`)
 - **Motor**: Botasaurus (Selenium wrapper con anti-detección)
@@ -247,7 +247,7 @@ El archivo descargado contiene **3 hojas**:
 
 ---
 
-## 🛡️ Monitoreo Profesional del Navegador (CDP)
+## Monitoreo Profesional del Navegador (CDP)
 
 ### ¿Qué es?
 Un sistema de **instrumentación** del navegador que intercepta TODO lo que ocurre dentro de la web de SUNEDU/MINEDU, sin necesidad de tener su código fuente.
@@ -289,7 +289,7 @@ Si CDP no está disponible (versión de Chrome incompatible), automáticamente u
 
 ---
 
-## 🔧 Historial de Cambios
+## Historial de Cambios
 
 ### v1.0 — Refactorización Completa
 - **Antes**: Todo en un solo archivo `workers.py` (855 líneas)
@@ -338,7 +338,7 @@ Si CDP no está disponible (versión de Chrome incompatible), automáticamente u
 
 ---
 
-## 📦 Dependencias
+## Dependencias
 
 ### Python
 ```
@@ -361,7 +361,7 @@ tailwindcss
 
 ---
 
-## ⚙️ Configuración (`app/core/config.py`)
+## Configuración (`app/core/config.py`)
 
 | Variable | Valor | Descripción |
 |----------|-------|-------------|
@@ -383,7 +383,7 @@ tailwindcss
 
 ---
 
-## ⚠️ Solución de Problemas
+## Solución de Problemas
 
 | Problema | Causa | Solución |
 |----------|-------|----------|
