@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import { DashboardProvider, useDashboard } from './context/DashboardContext'
 import usePolling from './hooks/usePolling'
 import { fetchStatus, fetchWorkersStatus, fetchRegistros } from './api/client'
@@ -22,6 +22,8 @@ const TAB_FILTERS = {
 
 function DashboardContent() {
   const { state, dispatch, addLog } = useDashboard()
+  const [isSidebarOpen, setSidebarOpen] = useState(false)
+
   const prev = useRef({
     sRun: false, mRun: false,
     total: 0,
@@ -117,11 +119,37 @@ function DashboardContent() {
   usePolling(poll, 2000)
 
   return (
-    <div className="flex w-full h-screen bg-gray-50">
-      <Sidebar />
+    <div className="flex w-full min-h-screen md:h-screen bg-gray-50">
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
-      <main className="flex-1 flex flex-col relative overflow-hidden">
-        <div className="p-6 md:p-8 flex flex-col h-full z-10 gap-5 overflow-y-auto">
+      <main className="flex-1 flex flex-col w-full md:h-full md:overflow-hidden">
+        {/* Mobile Header */}
+        <header className="md:hidden bg-white border-b border-gray-200 p-4 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+            >
+              <span className="material-icons-round">menu</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-gray-900">SICGT Mobile</span>
+              {/* Mobile Status Dot */}
+              <div
+                className={`w-2.5 h-2.5 rounded-full ${(state.workers?.sunedu?.running || state.workers?.minedu?.running)
+                    ? 'bg-green-500 animate-pulse'
+                    : 'bg-gray-300'
+                  }`}
+                title={state.workers?.sunedu?.running ? 'Procesando...' : 'Inactivo'}
+              />
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 p-4 md:p-8 flex flex-col gap-5 pb-20 md:pb-8 md:h-full md:overflow-y-auto">
           <MetricsGrid />
           <Pipeline />
 

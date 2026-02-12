@@ -8,10 +8,29 @@ const BASE = ''  // same origin
 
 // ─── Session Management ───
 
+function uuidv4() {
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c =>
+    (+c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> +c / 4).toString(16)
+  );
+}
+
+// Fallback simple si crypto no está disponible (HTTP local)
+function simpleUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 function getSessionId() {
   let sid = localStorage.getItem('SICGT_session_id')
   if (!sid) {
-    sid = crypto.randomUUID()
+    // Usar crypto si existe, sino fallback
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      sid = crypto.randomUUID();
+    } else {
+      sid = simpleUUID();
+    }
     localStorage.setItem('SICGT_session_id', sid)
   }
   return sid
