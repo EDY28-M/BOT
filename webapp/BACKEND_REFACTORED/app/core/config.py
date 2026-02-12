@@ -45,14 +45,14 @@ MINEDU_MAX_RETRIES = 8
 RETRY_EXTRA_SLEEP  = 1.2
 
 # --- Navegador (Botasaurus) ---
-HEADLESS = False  # Cambiar a True en producción si se desea
+HEADLESS = os.getenv("HEADLESS", "False").lower() == "true"
 BLOCK_IMAGES_SUNEDU = True
 BLOCK_IMAGES_MINEDU = False
 WINDOW_SIZE = (1366, 768)
 
 # --- API ---
-API_HOST = "127.0.0.1"
-API_PORT = 8000
+API_HOST = os.getenv("HOST", "0.0.0.0")
+API_PORT = int(os.getenv("PORT", 8000))
 
 # --- Sesiones ---
 MAX_GLOBAL_WORKERS = 10          # Máx Chrome instances en total (todas las sesiones)
