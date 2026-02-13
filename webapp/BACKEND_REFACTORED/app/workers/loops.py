@@ -37,6 +37,13 @@ def sunedu_worker_loop(session_id: str):
         output=None,
     )
     def _run(driver: Driver, data):
+        try:
+            d = getattr(driver, '_driver', None) or getattr(driver, 'driver', None)
+            if d:
+                d.set_window_position(-2400, -2400)
+        except Exception:
+            pass
+
         sid = data
         repo = DniRepository()
         scraper = SuneduScraper()
@@ -106,6 +113,13 @@ def minedu_worker_loop(session_id: str):
         output=None,
     )
     def _run(driver: Driver, data):
+        try:
+            d = getattr(driver, '_driver', None) or getattr(driver, 'driver', None)
+            if d:
+                d.set_window_position(-2400, -2400)
+        except Exception:
+            pass
+
         sid = data
         repo = DniRepository()
         scraper = MineduScraper()

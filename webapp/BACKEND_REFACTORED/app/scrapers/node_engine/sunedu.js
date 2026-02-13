@@ -29,7 +29,7 @@ const URL = 'https://constanciasweb.sunedu.gob.pe/#/modulos/grados-y-titulos';
         // ── Launch Browser ─────────────────────────────────────────
         browser = await chromium.launch({
             headless: false,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--window-position=-2400,-2400']
         });
         const context = await browser.newContext({
             viewport: { width: 1366, height: 768 },
